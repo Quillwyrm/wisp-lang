@@ -8,4 +8,5 @@ A nimble, dynamic, embeddable Lisp, written in Odin.
   (print "Hi" name "!"))
   
 (greet lang)
+; Hi Wisp!
 ```
