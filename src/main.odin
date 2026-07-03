@@ -8,7 +8,8 @@ import "core:strings"
 main :: proc() {
 	vm: VM
 	vm.globals = make([dynamic]GlobalBinding)
-	bind_native_global(&vm, "print", native_print)
+	vm.symbols = make([dynamic]^SymbolObject)
+	install_builtins(&vm)
 
 	if len(os.args) == 2 && os.args[1] != "eval" {
 		path_arg := os.args[1]
@@ -28,10 +29,11 @@ main :: proc() {
 	} else {
 		fmt.eprintln("usage: wisp <file>")
 		fmt.eprintln("       wisp eval <string>")
-		return
+		os.exit(1)
 	}
 
 	if vm.error_string != "" {
 		fmt.eprintln(vm.error_string)
+		os.exit(1)
 	}
 }

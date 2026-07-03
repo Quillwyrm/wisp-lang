@@ -25,5 +25,10 @@
 (print [nil true false 2.5])
 (print (/ 20 2 5))
 
+(print [ + - / * ])
+
+(def add +)
+(print (add 400 20))
+
 (output "done")
 values

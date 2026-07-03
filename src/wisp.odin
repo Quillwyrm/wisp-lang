@@ -122,6 +122,7 @@ Active_Code: Code
 VM :: struct {
 	slots:        [dynamic]Value,
 	globals:      [dynamic]GlobalBinding,
+	symbols:      [dynamic]^SymbolObject,
 	// Current host-operation diagnostic; empty means no error.
 	error_string: string,
 }
@@ -153,16 +154,56 @@ Compiler := struct {
 	next_slot:                 int,
 }{}
 
+// Single-active reader; failed poisons the current read until read_source resets it.
+Reader := struct {
+	source: string,
+	index:  int,
+	failed: bool,
+}{}
+
+
+// Errors =========================================================================================
+
+// error_string is either empty or cloned storage owned by the VM.
+clear_error :: proc(vm: ^VM) {
+	if vm.error_string != "" {
+		delete(vm.error_string)
+		vm.error_string = ""
+	}
+}
+
+set_error :: proc(text: string) {
+	assert(text != "", "set_error requires non-empty text")
+	assert(Active_VM.error_string == "", "set_error called while an error is already active")
+	Active_VM.error_string = strings.clone(text)
+}
+
+reader_error :: proc(message: string) {
+	if Reader.failed { return }
+
+	Reader.failed = true
+	set_error(fmt.tprintf("read error at byte %d: %s", Reader.index, message))
+}
+
+compile_error :: proc(message: string) {
+	if Compiler.failed { return }
+
+	Compiler.failed = true
+	set_error(fmt.tprintf("compile error: %s", message))
+}
+
+runtime_error :: proc(message: string) {
+	set_error(fmt.tprintf("runtime error: %s", message))
+}
+
 
 // Symbol interning ===============================================================================
-
-Symbol_Table: [dynamic]^SymbolObject
 
 // Symbols currently represent source atoms used as names.
 // User-visible symbol values remain deferred.
 // Equal symbol text always returns the same SymbolObject pointer.
-intern_symbol :: proc(text: string) -> ^SymbolObject {
-	for symbol in Symbol_Table {
+intern_symbol :: proc(vm: ^VM, text: string) -> ^SymbolObject {
+	for symbol in vm.symbols {
 		if symbol.text == text { return symbol }
 	}
 
@@ -171,7 +212,7 @@ intern_symbol :: proc(text: string) -> ^SymbolObject {
 	// Copy text because interned symbols outlive Reader.source.
 	symbol.text = strings.clone(text)
 
-	append(&Symbol_Table, symbol)
+	append(&vm.symbols, symbol)
 	return symbol
 }
 
@@ -199,27 +240,6 @@ new_vector_object :: proc(items: [dynamic]Value) -> ^VectorObject {
 	object.header.kind = .VECTOR
 	object.items = items
 	return object
-}
-
-
-// Reader state ===================================================================================
-
-// Reader is single-active; failed latches until the next read_source.
-// Values returned after failure are disposable placeholders that callers ignore.
-Reader := struct {
-	source: string,
-	index: int,
-	failed: bool,
-}{}
-
-
-// Reader errors ==================================================================================
-
-reader_error :: proc(message: string) {
-	if Reader.failed { return }
-
-	Reader.failed = true
-	Active_VM.error_string = fmt.tprintf("read error at byte %d: %s", Reader.index, message)
 }
 
 
@@ -362,7 +382,7 @@ read_atom :: proc() -> Value {
 		return Value(i64(magnitude))
 	}
 
-	return Value(cast(^Object)intern_symbol(text))
+	return Value(cast(^Object)intern_symbol(Active_VM, text))
 }
 
 read_string :: proc() -> Value {
@@ -514,6 +534,8 @@ read_source :: proc(source: string) -> [dynamic]Value {
 	Reader.failed = false
 
 	forms := read_all_forms()
+	Reader.source = ""
+
 	if Reader.failed {
 		delete(forms)
 		return nil
@@ -712,13 +734,6 @@ print_value :: proc(value: Value) {
 }
 
 
-// Runtime errors =================================================================================
-
-runtime_error :: proc(message: string) {
-	Active_VM.error_string = fmt.tprintf("runtime error: %s", message)
-}
-
-
 // Globals ========================================================================================
 
 find_global :: proc(vm: ^VM, symbol: ^SymbolObject) -> (int, bool) {
@@ -733,7 +748,7 @@ find_global :: proc(vm: ^VM, symbol: ^SymbolObject) -> (int, bool) {
 
 // Supplied native globals are immutable but may be shadowed by user bindings.
 bind_native_global :: proc(vm: ^VM, name: string, native: NativeProc) -> int {
-	symbol := intern_symbol(name)
+	symbol := intern_symbol(vm, name)
 	_, found := find_global(vm, symbol)
 	assert(!found, "duplicate supplied global binding")
 
@@ -838,26 +853,38 @@ emit_get_global :: proc(dst, global_index: int) {
 }
 
 emit_add :: proc(dst, first_slot, count: int) {
-	assert(count >= 2 && count <= int(max(u8)), "ADD argument count does not fit u8")
-	record_slots(dst, first_slot, first_slot + count - 1)
+	assert(count >= 0 && count <= int(max(u8)), "ADD argument count does not fit u8")
+	record_slots(dst)
+	if count > 0 {
+		record_slots(first_slot, first_slot + count - 1)
+	}
 	emit_ABC(.ADD, dst, first_slot, count)
 }
 
 emit_sub :: proc(dst, first_slot, count: int) {
-	assert(count >= 2 && count <= int(max(u8)), "SUB argument count does not fit u8")
-	record_slots(dst, first_slot, first_slot + count - 1)
+	assert(count >= 0 && count <= int(max(u8)), "SUB argument count does not fit u8")
+	record_slots(dst)
+	if count > 0 {
+		record_slots(first_slot, first_slot + count - 1)
+	}
 	emit_ABC(.SUB, dst, first_slot, count)
 }
 
 emit_mul :: proc(dst, first_slot, count: int) {
-	assert(count >= 2 && count <= int(max(u8)), "MUL argument count does not fit u8")
-	record_slots(dst, first_slot, first_slot + count - 1)
+	assert(count >= 0 && count <= int(max(u8)), "MUL argument count does not fit u8")
+	record_slots(dst)
+	if count > 0 {
+		record_slots(first_slot, first_slot + count - 1)
+	}
 	emit_ABC(.MUL, dst, first_slot, count)
 }
 
 emit_div :: proc(dst, first_slot, count: int) {
-	assert(count >= 2 && count <= int(max(u8)), "DIV argument count does not fit u8")
-	record_slots(dst, first_slot, first_slot + count - 1)
+	assert(count >= 0 && count <= int(max(u8)), "DIV argument count does not fit u8")
+	record_slots(dst)
+	if count > 0 {
+		record_slots(first_slot, first_slot + count - 1)
+	}
 	emit_ABC(.DIV, dst, first_slot, count)
 }
 
@@ -899,13 +926,6 @@ emit_return :: proc(src: int) {
 
 
 // Compiler =======================================================================================
-
-compile_error :: proc(message: string) {
-	if Compiler.failed { return }
-
-	Compiler.failed = true
-	Active_VM.error_string = fmt.tprintf("compile error: %s", message)
-}
 
 // Claims one frame slot above every value and binding that is currently live.
 claim_slot :: proc() -> int {
@@ -1104,6 +1124,7 @@ compile_body :: proc(forms: []Value, dst: int) {
 }
 
 compile_do :: proc(list: ^ListObject, dst: int) {
+	// A do body owns its bindings and restores the outer live-slot boundary.
 	local_mark := Compiler.local_count
 	slot_mark := Compiler.next_slot
 	outer_scope_start := Compiler.current_scope_local_start
@@ -1211,24 +1232,24 @@ compile_ordinary_call :: proc(list: ^ListObject, dst: int) {
 	emit_move(dst, base)
 }
 
-compile_core_operation :: proc(symbol: ^SymbolObject, args: []Value, dst: int) {
+compile_builtin_opcode :: proc(symbol: ^SymbolObject, args: []Value, dst: int) {
+	// The caller has already resolved an unshadowed supplied builtin.
 	if symbol.text == "+" ||
 	   symbol.text == "-" ||
 	   symbol.text == "*" ||
 	   symbol.text == "/" {
 		operand_count := len(args)
-		if operand_count < 2 {
-			compile_error(fmt.tprintf("`%s` expects two or more operands", symbol.text))
-			return
-		}
 		if operand_count > int(max(u8)) {
-			compile_error(fmt.tprintf("`%s` has too many operands", symbol.text))
+			compile_error(fmt.tprintf("`%s` has too many arguments", symbol.text))
 			return
 		}
 
-		operand_base := Compiler.next_slot
-		reserve_slots_until(operand_base + operand_count)
-		if Compiler.failed { return }
+		operand_base := dst
+		if operand_count > 0 {
+			operand_base = Compiler.next_slot
+			reserve_slots_until(operand_base + operand_count)
+			if Compiler.failed { return }
+		}
 
 		for i := 0; i < operand_count; i += 1 {
 			compile_expr(args[i], operand_base + i)
@@ -1248,29 +1269,33 @@ compile_core_operation :: proc(symbol: ^SymbolObject, args: []Value, dst: int) {
 	}
 
 	if symbol.text == "push" {
-		if len(args) != 2 {
-			compile_error("`push` expects two operands")
+		assert(len(args) >= 2, "push opcode requires a vector and at least one value")
+		if len(args) > int(max(u8)) {
+			compile_error("`push` has too many arguments")
 			return
 		}
 
-		value_slot := claim_slot()
+		value_count := len(args) - 1
+		value_base := Compiler.next_slot
+		reserve_slots_until(value_base + value_count)
 		if Compiler.failed { return }
 
 		compile_expr(args[0], dst)
 		if Compiler.failed { return }
 
-		compile_expr(args[1], value_slot)
-		if Compiler.failed { return }
+		for i := 0; i < value_count; i += 1 {
+			compile_expr(args[i + 1], value_base + i)
+			if Compiler.failed { return }
+		}
 
-		emit_vector_push(dst, value_slot)
+		for i := 0; i < value_count; i += 1 {
+			emit_vector_push(dst, value_base + i)
+		}
 		return
 	}
 
 	if symbol.text == "pop" {
-		if len(args) != 1 {
-			compile_error("`pop` expects one operand")
-			return
-		}
+		assert(len(args) == 1, "pop opcode requires one argument")
 
 		compile_expr(args[0], dst)
 		if Compiler.failed { return }
@@ -1279,10 +1304,11 @@ compile_core_operation :: proc(symbol: ^SymbolObject, args: []Value, dst: int) {
 		return
 	}
 
-	assert(false, "compile_core_operation expected core operation name")
+	assert(false, "compile_builtin_opcode expected opcode-backed builtin")
 }
 
-// Bare heads resolve as special forms, visible bindings, then core operations.
+// Bare heads resolve as special forms, then ordinary bindings.
+// Direct calls to supplied arithmetic and vector builtins may use dedicated opcodes.
 // Non-symbol heads are ordinary calls.
 compile_list_expr :: proc(list: ^ListObject, dst: int) {
 	if len(list.items) == 0 {
@@ -1325,17 +1351,23 @@ compile_list_expr :: proc(list: ^ListObject, dst: int) {
 
 	_, global_found := find_global(Active_VM, head)
 	if global_found {
-		compile_ordinary_call(list, dst)
-		return
-	}
+		argument_count := len(list.items) - 1
 
-	if head.text == "+" ||
-	   head.text == "-" ||
-	   head.text == "*" ||
-	   head.text == "/" ||
-	   head.text == "push" ||
-	   head.text == "pop" {
-		compile_core_operation(head, list.items[1:], dst)
+		if head.text == "+" ||
+		   head.text == "-" ||
+		   head.text == "*" ||
+		   head.text == "/" {
+			compile_builtin_opcode(head, list.items[1:], dst)
+			return
+		}
+
+		if (head.text == "push" && argument_count >= 2) ||
+		   (head.text == "pop" && argument_count == 1) {
+			compile_builtin_opcode(head, list.items[1:], dst)
+			return
+		}
+
+		compile_ordinary_call(list, dst)
 		return
 	}
 
@@ -1430,7 +1462,7 @@ compile_file_forms :: proc(forms: []Value) -> int {
 	return result_slot
 }
 
-compile_forms :: proc(forms: [dynamic]Value) -> Code {
+compile_forms :: proc(forms: []Value) -> Code {
 	Compiler.failed = false
 	Compiler.local_count = 0
 	Compiler.current_scope_local_start = 0
@@ -1438,7 +1470,7 @@ compile_forms :: proc(forms: [dynamic]Value) -> Code {
 
 	begin_code()
 
-	return_slot := compile_file_forms(forms[:])
+	return_slot := compile_file_forms(forms)
 	if Compiler.failed {
 		delete(Active_Code.bytecode)
 		delete(Active_Code.constants)
@@ -1469,7 +1501,12 @@ core_add :: proc(args: []Value) -> Value {
 		int_value, is_int := arg.(i64)
 		if is_int {
 			if all_int {
-				int_result += int_value
+				next_result := i128(int_result) + i128(int_value)
+				if next_result < i128(min(i64)) || next_result > i128(max(i64)) {
+					runtime_error("+ integer overflow")
+					return Value{}
+				}
+				int_result = i64(next_result)
 			} else {
 				float_result += f64(int_value)
 			}
@@ -1515,7 +1552,12 @@ core_sub :: proc(args: []Value) -> Value {
 		int_value, is_int := args[i].(i64)
 		if is_int {
 			if all_int {
-				int_result -= int_value
+				next_result := i128(int_result) - i128(int_value)
+				if next_result < i128(min(i64)) || next_result > i128(max(i64)) {
+					runtime_error("- integer overflow")
+					return Value{}
+				}
+				int_result = i64(next_result)
 			} else {
 				float_result -= f64(int_value)
 			}
@@ -1556,7 +1598,12 @@ core_mul :: proc(args: []Value) -> Value {
 		int_value, is_int := arg.(i64)
 		if is_int {
 			if all_int {
-				int_result *= int_value
+				next_result := i128(int_result) * i128(int_value)
+				if next_result < i128(min(i64)) || next_result > i128(max(i64)) {
+					runtime_error("* integer overflow")
+					return Value{}
+				}
+				int_result = i64(next_result)
 			} else {
 				float_result *= f64(int_value)
 			}
@@ -1628,8 +1675,76 @@ core_div :: proc(args: []Value) -> Value {
 	return Value(float_result)
 }
 
+core_push :: proc(vector_value, item: Value) -> Value {
+	vector_object, vector_is_object := vector_value.(^Object)
+	if !vector_is_object || vector_object.kind != .VECTOR {
+		runtime_error("push expects a vector as its first argument")
+		return Value{}
+	}
+
+	vector := cast(^VectorObject)vector_object
+	append(&vector.items, item)
+	return vector_value
+}
+
+core_pop :: proc(vector_value: Value) -> Value {
+	vector_object, vector_is_object := vector_value.(^Object)
+	if !vector_is_object || vector_object.kind != .VECTOR {
+		runtime_error("pop expects a vector")
+		return Value{}
+	}
+
+	vector := cast(^VectorObject)vector_object
+	if len(vector.items) == 0 {
+		runtime_error("cannot pop empty vector")
+		return Value{}
+	}
+
+	return pop(&vector.items)
+}
+
 
 // Native builtins ================================================================================
+
+native_add :: proc(vm: ^VM, args: []Value) -> Value {
+	return core_add(args)
+}
+
+native_sub :: proc(vm: ^VM, args: []Value) -> Value {
+	return core_sub(args)
+}
+
+native_mul :: proc(vm: ^VM, args: []Value) -> Value {
+	return core_mul(args)
+}
+
+native_div :: proc(vm: ^VM, args: []Value) -> Value {
+	return core_div(args)
+}
+
+native_push :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) < 2 {
+		runtime_error("push expects a vector and one or more values")
+		return Value{}
+	}
+
+	vector_value := args[0]
+	for i := 1; i < len(args); i += 1 {
+		core_push(vector_value, args[i])
+		if vm.error_string != "" { return Value{} }
+	}
+
+	return vector_value
+}
+
+native_pop :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) != 1 {
+		runtime_error("pop expects one argument")
+		return Value{}
+	}
+
+	return core_pop(args[0])
+}
 
 native_print :: proc(vm: ^VM, args: []Value) -> Value {
 	if len(args) != 1 {
@@ -1642,9 +1757,21 @@ native_print :: proc(vm: ^VM, args: []Value) -> Value {
 	return Value{}
 }
 
+install_builtins :: proc(vm: ^VM) {
+	// Supplied globals are immutable; install them exactly once per VM.
+	bind_native_global(vm, "+", native_add)
+	bind_native_global(vm, "-", native_sub)
+	bind_native_global(vm, "*", native_mul)
+	bind_native_global(vm, "/", native_div)
+	bind_native_global(vm, "push", native_push)
+	bind_native_global(vm, "pop", native_pop)
+	bind_native_global(vm, "print", native_print)
+}
+
 
 // VM execution ===================================================================================
 
+// Executes trusted Code against the selected VM and replaces its slot window.
 run_code :: proc(code: ^Code) -> Value {
 	vm := Active_VM
 
@@ -1779,34 +1906,14 @@ run_code :: proc(code: ^Code) -> Value {
 
 		case .VECTOR_PUSH:
 			inst := InstABC(word)
-			vector_value := vm.slots[int(inst.a)]
-
-			vector_object, vector_is_object := vector_value.(^Object)
-			if !vector_is_object || vector_object.kind != .VECTOR {
-				runtime_error("vector push receiver must be vector")
-				return Value{}
-			}
-
-			vector := cast(^VectorObject)vector_object
-			append(&vector.items, vm.slots[int(inst.b)])
+			core_push(vm.slots[int(inst.a)], vm.slots[int(inst.b)])
+			if vm.error_string != "" { return Value{} }
 
 		case .VECTOR_POP:
 			inst := InstABC(word)
-			vector_value := vm.slots[int(inst.b)]
-
-			vector_object, vector_is_object := vector_value.(^Object)
-			if !vector_is_object || vector_object.kind != .VECTOR {
-				runtime_error("vector pop receiver must be vector")
-				return Value{}
-			}
-
-			vector := cast(^VectorObject)vector_object
-			if len(vector.items) == 0 {
-				runtime_error("cannot pop empty vector")
-				return Value{}
-			}
-
-			vm.slots[int(inst.a)] = pop(&vector.items)
+			result := core_pop(vm.slots[int(inst.b)])
+			if vm.error_string != "" { return Value{} }
+			vm.slots[int(inst.a)] = result
 
 		case .SET_VECTOR:
 			inst := InstABC(word)
@@ -1847,26 +1954,31 @@ run_code :: proc(code: ^Code) -> Value {
 
 // Host operations ===============================================================================
 
+// Owns one read, compile, and execute operation and its diagnostic lifetime.
 run_string :: proc(vm: ^VM, source: string) -> Value {
 	Active_VM = vm
-	vm.error_string = ""
+	clear_error(vm)
 
 	forms := read_source(source)
 	if Reader.failed { return Value{} }
+	defer delete(forms)
 
-	code := compile_forms(forms)
+	code := compile_forms(forms[:])
 	if Compiler.failed { return Value{} }
+	defer delete(code.bytecode)
+	defer delete(code.constants)
 
 	return run_code(&code)
 }
 
+// Reads an exact path, then delegates the source pipeline to run_string.
 run_file :: proc(vm: ^VM, path: string) -> Value {
 	Active_VM = vm
-	vm.error_string = ""
+	clear_error(vm)
 
 	source_bytes, read_error := os.read_entire_file(path, context.allocator)
 	if read_error != nil {
-		vm.error_string = fmt.tprintf("read error: could not read file `%s`", path)
+		set_error(fmt.tprintf("read error: could not read file `%s`", path))
 		return Value{}
 	}
 	defer delete(source_bytes)

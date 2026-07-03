@@ -75,12 +75,6 @@ fn
 
 Special form names are reserved and cannot be bound as ordinary names.
 
-Core operation names have language-defined meaning in unshadowed call-head position.
-
-Core operation names are not reserved.
-
-User definitions may shadow core operation names with ordinary mutable bindings.
-
 Built-in functions are immutable global function bindings supplied by Wisp.
 
 Built-in function names are not reserved.
@@ -228,7 +222,7 @@ A child scope can read visible bindings from parent scopes.
 
 A child scope may define a name that shadows an outer binding.
 
-A file-scope definition may shadow a core operation name or a global binding, including a built-in function.
+A file-scope definition may shadow a global binding, including a built-in function.
 
 A duplicate definition for the same name in the same scope is an error.
 
@@ -436,16 +430,23 @@ Otherwise, Wisp resolves a bare head as an ordinary name.
 
 If a visible binding exists, the list is a call through that binding.
 
-If no visible binding exists and the bare head is a core operation name, the list is evaluated as that core operation.
-
-Otherwise, the list is an ordinary call. An unresolved callee name is an error.
+An unresolved callee name is an error.
 
 ```scheme
 (+ 1 2)
 ; 3
 ```
 
-Core operation names may be shadowed.
+Built-in functions may be read and called through other bindings.
+
+```scheme
+(def add +)
+
+(add 1 2)
+; 3
+```
+
+Built-in function names may be shadowed.
 
 ```scheme
 (def + (fn (a b) 999))
@@ -532,7 +533,7 @@ It creates a fresh lexical child scope, evaluates its body in that scope, and re
 ; 11
 ```
 
-Bindings created inside `do` do not escape.
+Bindings created inside `do` are not directly visible outside that scope.
 
 ```scheme
 (do
@@ -743,14 +744,14 @@ Setting an undefined binding is an error.
 ; error
 ```
 
-An unshadowed core operation name is not a binding, so it cannot be targeted by `set`.
+Supplied built-in global bindings are immutable and cannot be replaced with `set`.
 
 ```scheme
 (set + (fn (a b) 999))
 ; error
 ```
 
-Core operation names may still be shadowed by ordinary mutable bindings.
+Built-in names may still be shadowed by ordinary mutable bindings.
 
 ```scheme
 (def + (fn (a b) 999))
@@ -763,8 +764,6 @@ Core operation names may still be shadowed by ordinary mutable bindings.
 (+ 1 2)
 ; 123
 ```
-
-Supplied built-in global bindings are immutable and cannot be replaced with `set`.
 
 ```scheme
 (set print (fn (value) nil))
@@ -1031,19 +1030,23 @@ Strings compare by contents.
 ; 5
 ```
 
-## Core Operations
+## Built-in Functions
 
-Core operations are language-defined operation forms.
+Built-in functions are ordinary function values supplied by Wisp in the global environment.
 
-A core operation is recognized when its name appears as the bare head of a non-empty list form and no visible binding exists for that name.
+They are called the same way user functions are called.
 
-Core operation names are not reserved.
+Supplied built-in global bindings are immutable.
 
-File or local definitions may shadow core operation names with ordinary mutable bindings. When a visible binding exists, the list is evaluated as an ordinary call.
+Built-in function names are not reserved.
 
-Core operations are not bindings or runtime values. An unshadowed core operation name used outside call-head position is an undefined name.
+File or local definitions may shadow built-in functions.
 
-Core operation operands are evaluated left-to-right before the operation is performed.
+`set` cannot replace a supplied built-in binding. A shadowing file or local binding remains mutable.
+
+Arguments are evaluated left-to-right before the built-in is called.
+
+An implementation may use dedicated bytecode for a direct call to a known supplied built-in, provided that observable behavior remains unchanged.
 
 ```scheme
 (def + (fn (a b) 999))
@@ -1054,7 +1057,9 @@ Core operation operands are evaluated left-to-right before the operation is perf
 
 ```scheme
 (def add +)
-; error
+
+(add 1 2)
+; 3
 ```
 
 ### Arithmetic
@@ -1121,7 +1126,9 @@ Dividing by zero is an error.
 ; error
 ```
 
-`+`, `-`, and `*` return an int when all operands are ints. They return a float when any operand is a float.
+`+`, `-`, and `*` return an int when all arguments are ints. They return a float when any argument is a float.
+
+All-int arithmetic is checked after each left-to-right `+`, `-`, or `*` step. If an intermediate result does not fit in an int, evaluation is an error.
 
 ```scheme
 (+ 1 2)
@@ -1134,53 +1141,39 @@ Dividing by zero is an error.
 ### Vector Mutation
 
 ```scheme
-(push vector value)
+(push vector value value...)
 (pop vector)
 ```
 
-`push` accepts exactly two operands.
+`push` accepts a vector and one or more values.
 
-Its first operand must produce a vector.
+Its first argument must produce a vector.
 
-`push` appends the second value, mutates the vector in place, and returns the vector.
+It evaluates the vector followed by every value from left to right. If argument evaluation succeeds, `push` appends each value from left to right, mutates the vector in place, and returns the vector.
 
 ```scheme
 (def v [10 20])
 
-(push v 30)
-; [10 20 30]
+(push v 30 40)
+; [10 20 30 40]
 
 v
-; [10 20 30]
+; [10 20 30 40]
 ```
 
-`pop` accepts exactly one operand, which must produce a vector.
+`pop` accepts exactly one argument, which must produce a vector.
 
 It removes and returns the final value.
 
 ```scheme
 (pop v)
-; 30
+; 40
 
 v
-; [10 20]
+; [10 20 30]
 ```
 
 `pop` from an empty vector is an error.
-
-## Built-in Functions
-
-Built-in functions are ordinary function values supplied by Wisp in the global environment.
-
-They are called the same way user functions are called.
-
-Supplied built-in global bindings are immutable.
-
-Built-in function names are not reserved.
-
-File or local definitions may shadow built-in functions.
-
-`set` cannot replace a supplied built-in binding. A shadowing file or local binding remains mutable.
 
 ### Boolean
 
