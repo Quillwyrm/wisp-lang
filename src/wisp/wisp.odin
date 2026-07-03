@@ -1,4 +1,4 @@
-package main
+package wisp
 
 import "core:fmt"
 import "core:math"
@@ -651,22 +651,22 @@ debug_print_source_tree :: proc(forms: [dynamic]Value) {
 // Runtime display ================================================================================
 
 // parents contains only composite objects currently above this value.
-print_value_inner :: proc(value: Value, parents: ^[dynamic]^Object) {
+append_value_text :: proc(parts: ^[dynamic]string, value: Value, parents: ^[dynamic]^Object) {
 	if value == nil {
-		fmt.print("nil")
+		append(parts, "nil")
 		return
 	}
 
 	switch v in value {
 	case bool:
-		fmt.print(v)
+		append(parts, fmt.tprint(v))
 
 	case i64:
-		fmt.print(v)
+		append(parts, fmt.tprint(v))
 
 	case f64:
 		text := fmt.tprintf("%.15g", v)
-		fmt.print(text)
+		append(parts, text)
 
 		whole_number_text := true
 		for i := 0; i < len(text); i += 1 {
@@ -680,63 +680,63 @@ print_value_inner :: proc(value: Value, parents: ^[dynamic]^Object) {
 		}
 
 		if whole_number_text {
-			fmt.print(".0")
+			append(parts, ".0")
 		}
 
 	case ^Object:
 		switch v.kind {
 		case .STRING:
 			object := cast(^StringObject)v
-			fmt.print(object.text)
+			append(parts, object.text)
 
 		case .SYMBOL:
 			object := cast(^SymbolObject)v
-			fmt.printf("<symbol %s>", object.text)
+			append(parts, fmt.tprintf("<symbol %s>", object.text))
 
 		case .LIST:
 			for parent in parents {
 				if parent == v {
-					fmt.print("(...)")
+					append(parts, "(...)")
 					return
 				}
 			}
 			append(parents, v)
 
 			object := cast(^ListObject)v
-			fmt.print("(")
+			append(parts, "(")
 			for i := 0; i < len(object.items); i += 1 {
 				if i > 0 {
-					fmt.print(" ")
+					append(parts, " ")
 				}
-				print_value_inner(object.items[i], parents)
+				append_value_text(parts, object.items[i], parents)
 			}
-			fmt.print(")")
+			append(parts, ")")
 
 			pop(parents)
 
 		case .VECTOR:
 			for parent in parents {
 				if parent == v {
-					fmt.print("[...]")
+					append(parts, "[...]")
 					return
 				}
 			}
 			append(parents, v)
 
 			object := cast(^VectorObject)v
-			fmt.print("[")
+			append(parts, "[")
 			for i := 0; i < len(object.items); i += 1 {
 				if i > 0 {
-					fmt.print(" ")
+					append(parts, " ")
 				}
-				print_value_inner(object.items[i], parents)
+				append_value_text(parts, object.items[i], parents)
 			}
-			fmt.print("]")
+			append(parts, "]")
 
 			pop(parents)
 
 		case .NATIVE_FUNCTION:
-			fmt.print("<function>")
+			append(parts, "<function>")
 
 		case:
 			assert(false, "invalid object tag")
@@ -744,10 +744,23 @@ print_value_inner :: proc(value: Value, parents: ^[dynamic]^Object) {
 	}
 }
 
-print_value :: proc(value: Value) {
+// Returns owned display text; the caller deletes it.
+value_display_text :: proc(value: Value) -> string {
+	parts := make([dynamic]string)
 	parents := make([dynamic]^Object)
-	print_value_inner(value, &parents)
+
+	append_value_text(&parts, value, &parents)
+	text := strings.concatenate(parts[:])
+
+	delete(parts)
 	delete(parents)
+	return text
+}
+
+print_value :: proc(value: Value) {
+	text := value_display_text(value)
+	fmt.print(text)
+	delete(text)
 }
 
 
@@ -1958,12 +1971,15 @@ core_greater_equal :: proc(lhs, rhs: Value) -> Value {
 	return Value(bool(order == .GREATER || order == .EQUAL))
 }
 
-core_not :: proc(value: Value) -> Value {
-	if value == nil { return Value(bool(true)) }
+value_is_falsey :: proc(value: Value) -> bool {
+	if value == nil { return true }
 
 	boolean, is_bool := value.(bool)
-	if is_bool { return Value(bool(!boolean)) }
-	return Value(bool(false))
+	return is_bool && !boolean
+}
+
+core_not :: proc(value: Value) -> Value {
+	return Value(bool(value_is_falsey(value)))
 }
 
 core_len :: proc(value: Value) -> Value {
@@ -2097,6 +2113,76 @@ native_len :: proc(vm: ^VM, args: []Value) -> Value {
 	return core_len(args[0])
 }
 
+native_type :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) != 1 {
+		runtime_error("type expects one argument")
+		return Value{}
+	}
+
+	value := args[0]
+	type_name: string
+
+	if value == nil {
+		type_name = "nil"
+	} else {
+		switch v in value {
+		case bool:
+			type_name = "bool"
+		case i64:
+			type_name = "int"
+		case f64:
+			type_name = "float"
+		case ^Object:
+			switch v.kind {
+			case .STRING:
+				type_name = "string"
+			case .LIST:
+				type_name = "list"
+			case .VECTOR:
+				type_name = "vector"
+			case .NATIVE_FUNCTION:
+				type_name = "function"
+			case .SYMBOL:
+				assert(false, "symbol is not a Wisp runtime value")
+				return Value{}
+			}
+		}
+	}
+
+	return Value(cast(^Object)new_string_object(type_name))
+}
+
+native_assert :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) < 1 || len(args) > 2 {
+		runtime_error("assert expects a condition and optional message")
+		return Value{}
+	}
+
+	if !value_is_falsey(args[0]) { return Value{} }
+
+	if len(args) == 1 {
+		runtime_error("assertion failed")
+		return Value{}
+	}
+
+	message := value_display_text(args[1])
+	runtime_error(fmt.tprintf("assertion failed: %s", message))
+	delete(message)
+	return Value{}
+}
+
+native_error :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) != 1 {
+		runtime_error("error expects one argument")
+		return Value{}
+	}
+
+	message := value_display_text(args[0])
+	runtime_error(message)
+	delete(message)
+	return Value{}
+}
+
 native_push :: proc(vm: ^VM, args: []Value) -> Value {
 	if len(args) < 2 {
 		runtime_error("push expects a vector and one or more values")
@@ -2139,6 +2225,17 @@ native_write :: proc(vm: ^VM, args: []Value) -> Value {
 	return Value{}
 }
 
+make_vm :: proc() -> VM {
+	vm := VM{
+		globals = make([dynamic]GlobalBinding),
+		symbols = make([dynamic]^SymbolObject),
+	}
+
+	install_builtins(&vm)
+	return vm
+}
+
+@(private)
 install_builtins :: proc(vm: ^VM) {
 	// Supplied globals are immutable; install them exactly once per VM.
 	bind_native_global(vm, "+", native_add)
@@ -2153,6 +2250,9 @@ install_builtins :: proc(vm: ^VM) {
 	bind_native_global(vm, ">=", native_greater_equal)
 	bind_native_global(vm, "not", native_not)
 	bind_native_global(vm, "len", native_len)
+	bind_native_global(vm, "type", native_type)
+	bind_native_global(vm, "assert", native_assert)
+	bind_native_global(vm, "error", native_error)
 	bind_native_global(vm, "push", native_push)
 	bind_native_global(vm, "pop", native_pop)
 	bind_native_global(vm, "print", native_print)
@@ -2397,11 +2497,8 @@ run_code :: proc(code: ^Code) -> Value {
 
 // Host operations ===============================================================================
 
-// Owns one read, compile, and execute operation and its diagnostic lifetime.
-run_string :: proc(vm: ^VM, source: string) -> Value {
-	Active_VM = vm
-	clear_error(vm)
-
+@(private)
+run_source :: proc(source: string) -> Value {
 	forms := read_source(source)
 	if Reader.failed { return Value{} }
 	defer delete(forms)
@@ -2414,7 +2511,14 @@ run_string :: proc(vm: ^VM, source: string) -> Value {
 	return run_code(&code)
 }
 
-// Reads an exact path, then delegates the source pipeline to run_string.
+// Owns one read, compile, and execute operation and its diagnostic lifetime.
+run_string :: proc(vm: ^VM, source: string) -> Value {
+	Active_VM = vm
+	clear_error(vm)
+	return run_source(source)
+}
+
+// Reads an exact path, then runs the shared source pipeline.
 run_file :: proc(vm: ^VM, path: string) -> Value {
 	Active_VM = vm
 	clear_error(vm)
@@ -2426,5 +2530,5 @@ run_file :: proc(vm: ^VM, path: string) -> Value {
 	}
 	defer delete(source_bytes)
 
-	return run_string(vm, string(source_bytes))
+	return run_source(string(source_bytes))
 }

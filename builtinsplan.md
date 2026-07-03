@@ -14,6 +14,9 @@ The MVP builtin set we discussed, excluding `and` / `or` / `else`, is this:
 | `>=`    |     2 numbers | bool         | yes                   | Numeric ordering.                                             |
 | `not`   |       1 value | bool         | yes                   | Uses Wisp truthiness.                                         |
 | `len`   |       1 value | int          | yes                   | Vector length, string byte length.                            |
+| `type`  |       1 value | string       | no                    | Returns the public runtime type name.                         |
+| `assert` | 1 or 2 values | nil         | no                    | Runtime error when the condition is falsey.                   |
+| `error` |       1 value | nil          | no                    | Raises a runtime error using display text.                    |
 | `push`  | vector, 1+ values | vector    | yes                   | Evaluates all arguments before mutation; returns vector.     |
 | `pop`   |        vector | value        | yes, exact arity only | Mutates vector, returns removed value.                        |
 | `print` |     0+ values | nil          | no                    | Display values, space-separated, newline.                     |
@@ -148,7 +151,7 @@ That gives you both human logging and raw-ish output composition without string 
 
 Do **not** add `list` in this pass.
 
-Even though the ref currently mentions it, runtime lists are not pulling much weight until quote/rest/destructuring/macros or list APIs exist. Vectors are the practical sequence type right now. The current ref still has `list`, but we already identified that as something to de-emphasize or defer. 
+Runtime lists are not pulling much weight until quote, rest arguments, destructuring, macros, or list APIs exist. Vectors are the practical sequence type now, so runtime list construction remains deferred.
 
 ## Final MVP builtin batch
 
@@ -161,6 +164,7 @@ I’d implement in this order:
 4. write + variadic print
 5. %
 6. opcodes for %, comparisons, not, len
+7. type + assert + error
 ```
 
 Arithmetic and `push/pop` are already in the right opcode-backed direction.

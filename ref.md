@@ -2,11 +2,7 @@
 
 This document describes the intended core surface of Wisp.
 
-It is a language reference, not a tutorial, implementation report, or VM spec.
-
 Wisp is a small eager Lisp with s-expression syntax, lexical scope, mutable bindings, immutable lists, mutable vectors, and first-class functions.
-
-Wisp does not currently specify quote, eval, macros, symbol literals, or source-as-data semantics.
 
 ## Source Shape
 
@@ -60,7 +56,7 @@ true
 false
 ```
 
-They produce literal values and cannot be bound as ordinary names.
+They produce literal values and cannot be used as binding names.
 
 Special form names have fixed language meaning:
 
@@ -73,7 +69,7 @@ while
 fn
 ```
 
-Special form names are reserved and cannot be bound as ordinary names.
+Special form names are reserved and cannot be used as binding names.
 
 Built-in functions are immutable global function bindings supplied by Wisp.
 
@@ -98,7 +94,7 @@ function
 
 ### Nil
 
-`nil` is an ordinary value for absence or no useful result.
+`nil` is a value used for absence or no useful result.
 
 `nil` is distinct from `false`.
 
@@ -113,7 +109,7 @@ Every other value is truthy, including:
 ```text
 0
 ""
-()
+empty list values
 []
 ```
 
@@ -426,9 +422,7 @@ If the bare head is a special form name, that special form controls evaluation.
 (do (def x 10) x)
 ```
 
-Otherwise, Wisp resolves a bare head as an ordinary name.
-
-If a visible binding exists, the list is a call through that binding.
+Otherwise, the head and arguments follow normal call evaluation.
 
 An unresolved callee name is an error.
 
@@ -452,7 +446,7 @@ Built-in function names may be shadowed.
 (def + (fn (a b) 999))
 
 (+ 1 2)
-; ordinary call through the file binding
+; resolves + to the file binding and calls its value
 ```
 
 An empty source list in expression position is an error.
@@ -480,7 +474,6 @@ Callable values:
 
 ```text
 function
-built-in function
 vector
 ```
 
@@ -506,7 +499,7 @@ An out-of-bounds vector index is an error.
 
 ## Special Forms
 
-Special forms are built-in syntactic forms with special evaluation rules.
+Special forms are language forms with special evaluation rules.
 
 A special form is recognized only when its name appears as the head of an evaluated list form.
 
@@ -612,7 +605,7 @@ Use `do` when a branch needs local definitions or multiple forms.
 ; returns "alive"
 ```
 
-The branch-local binding does not escape the `do` branch.
+The binding is not directly visible outside the branch's `do` scope.
 
 ```scheme
 message
@@ -751,7 +744,7 @@ Supplied built-in global bindings are immutable and cannot be replaced with `set
 ; error
 ```
 
-Built-in names may still be shadowed by ordinary mutable bindings.
+Built-in names may still be shadowed by mutable bindings.
 
 ```scheme
 (def + (fn (a b) 999))
@@ -770,7 +763,7 @@ Built-in names may still be shadowed by ordinary mutable bindings.
 ; error
 ```
 
-Built-in names may still be shadowed by ordinary mutable bindings.
+Built-in names may still be shadowed by mutable bindings.
 
 ```scheme
 (def print (fn (value) nil))
@@ -878,7 +871,7 @@ Vectors are callable by index.
 ; 20
 ```
 
-Vector calls are normal calls, not special indexing syntax.
+Vectors are indexed through call syntax using normal call evaluation.
 
 ```scheme
 ([10 20 30] 2)
@@ -893,36 +886,9 @@ An out-of-bounds vector index is an error.
 
 Lists are immutable runtime values.
 
-Source lists are also the surface shape of Wisp forms.
-
-`list` constructs list values at runtime.
-
-```scheme
-(list expr...)
-```
-
-Arguments evaluate left-to-right. The result is a fresh immutable list containing those values.
-
-```scheme
-(def x 10)
-
-(list x (+ 1 2))
-; (10 3)
-```
-
-`list` accepts zero or more arguments.
-
-```scheme
-(list)
-; ()
-```
+Source lists are the surface shape of Wisp forms, not runtime list literals.
 
 Lists may contain any Wisp value, including `nil`.
-
-```scheme
-(list nil true 10 "dog")
-; (nil true 10 dog)
-```
 
 ### Numbers
 
@@ -1010,8 +976,6 @@ String literals use double quotes.
 "hello"
 ```
 
-String escapes are not implemented.
-
 A backslash inside a string is a read error.
 
 A literal newline or carriage return inside a string is a read error.
@@ -1032,7 +996,7 @@ Strings compare by contents.
 
 ## Built-in Functions
 
-Built-in functions are ordinary function values supplied by Wisp in the global environment.
+Built-in functions are function values supplied by Wisp in the global environment.
 
 They are called the same way user functions are called.
 
@@ -1046,7 +1010,22 @@ File or local definitions may shadow built-in functions.
 
 Arguments are evaluated left-to-right before the built-in is called.
 
-An implementation may use dedicated bytecode for a direct call to a known supplied built-in, provided that observable behavior remains unchanged.
+| Function | Arity | Returns |
+| --- | ---: | --- |
+| `+`, `-`, `*` | 2+ numbers | int or float |
+| `/` | 2+ numbers | float |
+| `%` | 2 numbers | int or float |
+| `=` | 2 values | bool |
+| `<`, `<=`, `>`, `>=` | 2 numbers | bool |
+| `not` | 1 value | bool |
+| `len` | 1 value | int |
+| `push` | vector and 1+ values | vector |
+| `pop` | 1 vector | value |
+| `type` | 1 value | string |
+| `print` | 0+ values | nil |
+| `write` | 0+ values | nil |
+| `assert` | 1 or 2 values | nil or ends the current run |
+| `error` | 1 value | ends the current run |
 
 ```scheme
 (def + (fn (a b) 999))
@@ -1196,21 +1175,62 @@ v
 
 `pop` from an empty vector is an error.
 
+### Type
+
+```scheme
+(type value)
+```
+
+`type` accepts exactly one value and returns its type name as a string.
+
+```text
+nil      -> "nil"
+bool     -> "bool"
+int      -> "int"
+float    -> "float"
+string   -> "string"
+list     -> "list"
+vector   -> "vector"
+function -> "function"
+```
+
+Native and Wisp functions both have the public type name `"function"`.
+
+### Length
+
+```scheme
+(len value)
+```
+
+`len` accepts exactly one argument.
+
+It accepts vectors and strings.
+
+For vectors, it returns the number of elements.
+
+For strings, it returns the byte length of the UTF-8 string.
+
+```scheme
+(len [10 20 30])
+; 3
+
+(len "hello")
+; 5
+```
+
 ### Boolean
 
 ```scheme
 (not value)
 ```
 
-`not` is an ordinary built-in function.
+`not` is a built-in function.
 
 It accepts exactly one normally evaluated argument.
 
 It returns `true` when the argument is falsey and `false` otherwise.
 
 Only `nil` and `false` are falsey.
-
-As an ordinary built-in, `not` follows normal global binding rules.
 
 ```scheme
 (not nil)
@@ -1323,26 +1343,31 @@ Function values print as opaque function values.
 ; <function>
 ```
 
-### Length
+### Errors
 
 ```scheme
-(len value)
+(assert condition)
+(assert condition message)
+(error message)
 ```
 
-`len` accepts exactly one argument.
+`assert` accepts a condition and an optional message.
 
-It accepts vectors and strings.
+Its arguments are evaluated normally.
 
-For vectors, it returns the number of elements.
+If the condition is truthy, `assert` returns `nil`.
 
-For strings, it returns the byte length of the UTF-8 string.
+If the condition is falsey, `assert` ends the current run. Without a message, the diagnostic is `assertion failed`. With a message, the diagnostic is `assertion failed: ` followed by the message value's display text.
 
 ```scheme
-(len [10 20 30])
-; 3
+(assert (< hp max-hp) "hp out of range")
+```
 
-(len "hello")
-; 5
+`error` accepts exactly one value and ends the current run with a runtime diagnostic using that value's display text.
+
+```scheme
+(error "unreachable")
+(error [1 2 3])
 ```
 
 ## Display
@@ -1373,26 +1398,7 @@ Examples:
 
 (print [1 2 3])
 ; [1 2 3]
-
-(print (list 1 2 3))
-; (1 2 3)
 ```
-
-## Deferred Features
-
-These features are intentionally not specified yet:
-
-```text
-quote
-symbol values and symbol literals
-eval
-macros
-source-as-data APIs
-program-as-data APIs
-read-only quoted aggregate data
-```
-
-Wisp uses s-expression syntax for programs, but the current surface does not expose full code-as-data semantics.
 
 ## Examples
 
@@ -1455,7 +1461,7 @@ Use `do` when a branch needs local definitions.
 ; returns "alive"
 ```
 
-The branch-local binding does not escape.
+The binding is not directly visible outside the branch's `do` scope.
 
 ```scheme
 message

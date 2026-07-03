@@ -27,6 +27,8 @@
 (print [(% -1 8) (= 1 1.0) (< 1 2) (>= 2 2)])
 (print [(not nil) (not false) (not 0)])
 (print [(len values) (len "wisp")])
+(print [(type nil) (type true) (type 1) (type 1.0) (type "x") (type values) (type +)])
+(assert true "not displayed")
 
 (print [ + - / * ])
 
@@ -39,4 +41,21 @@
 (print " works")
 
 (output "done")
+
+; variadic arithmetic 3+ args
+(print (+ 1 2 3))
+(print (- 10 2 3))
+(print (* 2 3 4))
+
+; variadic push
+(print (push [1 2] 3 4 5))
+
+; vector self-cycle display
+(def cycle [])
+(push cycle cycle)
+(print cycle)
+
 values
+
+; error builtin (must be last — terminates execution)
+(error "test-error")
