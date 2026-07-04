@@ -1,4 +1,4 @@
-package wisp
+package rite
 
 import "core:fmt"
 import "core:hash"
@@ -39,7 +39,7 @@ SymbolObject :: struct {
 ListObject :: struct {
 	header: Object,
 
-	// Lists are immutable Wisp values. This storage is built once and is not mutated by language operations.
+	// Lists are immutable Rite values. This storage is built once and is not mutated by language operations.
 	items: [dynamic]Value,
 }
 
@@ -64,7 +64,7 @@ MapObject :: struct {
 	tombstone_count: int,
 }
 
-// The zero value of this union represents Wisp nil.
+// The zero value of this union represents Rite nil.
 Value :: union {
 	bool,
 	i64,
@@ -289,7 +289,7 @@ string_hash :: proc(object: ^StringObject) -> u64 {
 	return object.hash
 }
 
-// Hashes one legal runtime map key. Numeric hashing mirrors Wisp's current
+// Hashes one legal runtime map key. Numeric hashing mirrors Rite's current
 // mixed comparison rule by first converting ints to f64.
 map_key_hash :: proc(key: Value) -> (u64, bool) {
 	if key == nil {
@@ -327,7 +327,7 @@ map_key_hash :: proc(key: Value) -> (u64, bool) {
 			return string_hash(cast(^StringObject)value), true
 
 		case .SYMBOL:
-			assert(false, "symbol is not a Wisp runtime value")
+			assert(false, "symbol is not a Rite runtime value")
 			return 0, false
 
 		case .LIST, .VECTOR, .MAP, .NATIVE_FUNCTION:
@@ -599,7 +599,7 @@ read_atom :: proc() -> Value {
 			return Value{}
 		}
 
-		// Odin converts the value only after Wisp accepts its spelling.
+		// Odin converts the value only after Rite accepts its spelling.
 		if is_float {
 			float_value, float_ok := strconv.parse_f64(text)
 			if !float_ok {
@@ -2647,12 +2647,171 @@ native_not :: proc(vm: ^VM, args: []Value) -> Value {
 	return core_not(args[0])
 }
 
+native_nil_predicate :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) != 1 {
+		runtime_error("nil? expects one argument")
+		return Value{}
+	}
+	return Value(bool(args[0] == nil))
+}
+
+native_bool_predicate :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) != 1 {
+		runtime_error("bool? expects one argument")
+		return Value{}
+	}
+	_, is_bool := args[0].(bool)
+	return Value(bool(is_bool))
+}
+
+native_number_predicate :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) != 1 {
+		runtime_error("num? expects one argument")
+		return Value{}
+	}
+	_, is_int := args[0].(i64)
+	_, is_float := args[0].(f64)
+	return Value(bool(is_int || is_float))
+}
+
+native_int_predicate :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) != 1 {
+		runtime_error("int? expects one argument")
+		return Value{}
+	}
+	_, is_int := args[0].(i64)
+	return Value(bool(is_int))
+}
+
+native_float_predicate :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) != 1 {
+		runtime_error("float? expects one argument")
+		return Value{}
+	}
+	_, is_float := args[0].(f64)
+	return Value(bool(is_float))
+}
+
+native_string_predicate :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) != 1 {
+		runtime_error("str? expects one argument")
+		return Value{}
+	}
+	object, is_object := args[0].(^Object)
+	return Value(bool(is_object && object.kind == .STRING))
+}
+
+native_vector_predicate :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) != 1 {
+		runtime_error("vec? expects one argument")
+		return Value{}
+	}
+	object, is_object := args[0].(^Object)
+	return Value(bool(is_object && object.kind == .VECTOR))
+}
+
+native_map_predicate :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) != 1 {
+		runtime_error("map? expects one argument")
+		return Value{}
+	}
+	object, is_object := args[0].(^Object)
+	return Value(bool(is_object && object.kind == .MAP))
+}
+
+native_function_predicate :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) != 1 {
+		runtime_error("fn? expects one argument")
+		return Value{}
+	}
+	object, is_object := args[0].(^Object)
+	return Value(bool(is_object && object.kind == .NATIVE_FUNCTION))
+}
+
 native_len :: proc(vm: ^VM, args: []Value) -> Value {
 	if len(args) != 1 {
 		runtime_error("len expects one argument")
 		return Value{}
 	}
 	return core_len(args[0])
+}
+
+native_copy :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) != 1 {
+		runtime_error("copy expects one argument")
+		return Value{}
+	}
+
+	object, is_object := args[0].(^Object)
+	if !is_object {
+		runtime_error("copy expects a vector or map")
+		return Value{}
+	}
+
+	switch object.kind {
+	case .VECTOR:
+		source := cast(^VectorObject)object
+		items := make([dynamic]Value)
+		reserve(&items, len(source.items))
+		for item in source.items {
+			append(&items, item)
+		}
+		return Value(cast(^Object)new_vector_object(items))
+
+	case .MAP:
+		source := cast(^MapObject)object
+		result := new_map_object()
+		map_init(result, source.count)
+
+		for entry in source.entries {
+			if entry.key != nil {
+				map_set(result, entry.key, entry.value)
+			}
+		}
+
+		return Value(cast(^Object)result)
+
+	case .STRING, .SYMBOL, .LIST, .NATIVE_FUNCTION:
+		runtime_error("copy expects a vector or map")
+		return Value{}
+	}
+
+	return Value{}
+}
+
+native_clear :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) != 1 {
+		runtime_error("clear expects one argument")
+		return Value{}
+	}
+
+	object, is_object := args[0].(^Object)
+	if !is_object {
+		runtime_error("clear expects a vector or map")
+		return Value{}
+	}
+
+	switch object.kind {
+	case .VECTOR:
+		vector := cast(^VectorObject)object
+		clear(&vector.items)
+		return args[0]
+
+	case .MAP:
+		map_object := cast(^MapObject)object
+		for i := 0; i < len(map_object.entries); i += 1 {
+			map_object.entries[i] = MapEntry{}
+		}
+		map_object.count = 0
+		map_object.tombstone_count = 0
+		return args[0]
+
+	case .STRING, .SYMBOL, .LIST, .NATIVE_FUNCTION:
+		runtime_error("clear expects a vector or map")
+		return Value{}
+	}
+
+	return Value{}
 }
 
 native_type :: proc(vm: ^VM, args: []Value) -> Value {
@@ -2687,7 +2846,7 @@ native_type :: proc(vm: ^VM, args: []Value) -> Value {
 			case .NATIVE_FUNCTION:
 				type_name = "function"
 			case .SYMBOL:
-				assert(false, "symbol is not a Wisp runtime value")
+				assert(false, "symbol is not a Rite runtime value")
 				return Value{}
 			}
 		}
@@ -2751,6 +2910,213 @@ native_pop :: proc(vm: ^VM, args: []Value) -> Value {
 	return core_pop(args[0])
 }
 
+native_insert :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) != 3 {
+		runtime_error("insert expects a vector, index, and value")
+		return Value{}
+	}
+
+	object, is_object := args[0].(^Object)
+	if !is_object || object.kind != .VECTOR {
+		runtime_error("insert expects a vector as its first argument")
+		return Value{}
+	}
+
+	index, is_int := args[1].(i64)
+	if !is_int {
+		runtime_error("insert index must be int")
+		return Value{}
+	}
+
+	vector := cast(^VectorObject)object
+	if index < 0 || index > i64(len(vector.items)) {
+		runtime_error("insert index out of range")
+		return Value{}
+	}
+
+	inject_at(&vector.items, int(index), args[2])
+	return args[0]
+}
+
+native_remove :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) != 2 {
+		runtime_error("remove expects a vector and index")
+		return Value{}
+	}
+
+	object, is_object := args[0].(^Object)
+	if !is_object || object.kind != .VECTOR {
+		runtime_error("remove expects a vector as its first argument")
+		return Value{}
+	}
+
+	index, is_int := args[1].(i64)
+	if !is_int {
+		runtime_error("remove index must be int")
+		return Value{}
+	}
+
+	vector := cast(^VectorObject)object
+	if index < 0 || index >= i64(len(vector.items)) {
+		runtime_error("remove index out of range")
+		return Value{}
+	}
+
+	result := vector.items[int(index)]
+	ordered_remove(&vector.items, int(index))
+	return result
+}
+
+native_slice :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) != 3 {
+		runtime_error("slice expects a vector, start, and count")
+		return Value{}
+	}
+
+	object, is_object := args[0].(^Object)
+	if !is_object || object.kind != .VECTOR {
+		runtime_error("slice expects a vector as its first argument")
+		return Value{}
+	}
+
+	start, start_is_int := args[1].(i64)
+	count, count_is_int := args[2].(i64)
+	if !start_is_int || !count_is_int {
+		runtime_error("slice start and count must be ints")
+		return Value{}
+	}
+
+	vector := cast(^VectorObject)object
+	length := i64(len(vector.items))
+	if start < 0 || count < 0 || start > length || count > length - start {
+		runtime_error("slice range out of bounds")
+		return Value{}
+	}
+
+	items := make([dynamic]Value)
+	reserve(&items, int(count))
+	for item in vector.items[int(start):int(start + count)] {
+		append(&items, item)
+	}
+
+	return Value(cast(^Object)new_vector_object(items))
+}
+
+native_keys :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) != 1 {
+		runtime_error("keys expects one argument")
+		return Value{}
+	}
+
+	object, is_object := args[0].(^Object)
+	if !is_object || object.kind != .MAP {
+		runtime_error("keys expects a map")
+		return Value{}
+	}
+
+	map_object := cast(^MapObject)object
+	items := make([dynamic]Value)
+	reserve(&items, map_object.count)
+
+	for entry in map_object.entries {
+		if entry.key != nil {
+			append(&items, entry.key)
+		}
+	}
+
+	return Value(cast(^Object)new_vector_object(items))
+}
+
+native_vals :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) != 1 {
+		runtime_error("vals expects one argument")
+		return Value{}
+	}
+
+	object, is_object := args[0].(^Object)
+	if !is_object || object.kind != .MAP {
+		runtime_error("vals expects a map")
+		return Value{}
+	}
+
+	map_object := cast(^MapObject)object
+	items := make([dynamic]Value)
+	reserve(&items, map_object.count)
+
+	for entry in map_object.entries {
+		if entry.key != nil {
+			append(&items, entry.value)
+		}
+	}
+
+	return Value(cast(^Object)new_vector_object(items))
+}
+
+native_pairs :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) != 1 {
+		runtime_error("pairs expects one argument")
+		return Value{}
+	}
+
+	object, is_object := args[0].(^Object)
+	if !is_object || object.kind != .MAP {
+		runtime_error("pairs expects a map")
+		return Value{}
+	}
+
+	map_object := cast(^MapObject)object
+	items := make([dynamic]Value)
+	reserve(&items, map_object.count)
+
+	for entry in map_object.entries {
+		if entry.key == nil {
+			continue
+		}
+
+		pair := make([dynamic]Value)
+		reserve(&pair, 2)
+		append(&pair, entry.key, entry.value)
+		append(&items, Value(cast(^Object)new_vector_object(pair)))
+	}
+
+	return Value(cast(^Object)new_vector_object(items))
+}
+
+native_merge :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) < 2 {
+		runtime_error("merge expects two or more maps")
+		return Value{}
+	}
+
+	entry_capacity := 0
+	for arg in args {
+		object, is_object := arg.(^Object)
+		if !is_object || object.kind != .MAP {
+			runtime_error("merge expects maps")
+			return Value{}
+		}
+
+		map_object := cast(^MapObject)object
+		entry_capacity += map_object.count
+	}
+
+	result := new_map_object()
+	map_init(result, entry_capacity)
+
+	for arg in args {
+		object := arg.(^Object)
+		map_object := cast(^MapObject)object
+
+		for entry in map_object.entries {
+			if entry.key != nil {
+				map_set(result, entry.key, entry.value)
+			}
+		}
+	}
+
+	return Value(cast(^Object)result)
+}
+
 native_print :: proc(vm: ^VM, args: []Value) -> Value {
 	for i := 0; i < len(args); i += 1 {
 		if i > 0 {
@@ -2794,12 +3160,30 @@ install_builtins :: proc(vm: ^VM) {
 	bind_native_global(vm, ">", native_greater)
 	bind_native_global(vm, ">=", native_greater_equal)
 	bind_native_global(vm, "not", native_not)
+	bind_native_global(vm, "nil?", native_nil_predicate)
+	bind_native_global(vm, "bool?", native_bool_predicate)
+	bind_native_global(vm, "num?", native_number_predicate)
+	bind_native_global(vm, "int?", native_int_predicate)
+	bind_native_global(vm, "float?", native_float_predicate)
+	bind_native_global(vm, "str?", native_string_predicate)
+	bind_native_global(vm, "vec?", native_vector_predicate)
+	bind_native_global(vm, "map?", native_map_predicate)
+	bind_native_global(vm, "fn?", native_function_predicate)
 	bind_native_global(vm, "len", native_len)
+	bind_native_global(vm, "copy", native_copy)
+	bind_native_global(vm, "clear", native_clear)
 	bind_native_global(vm, "type", native_type)
 	bind_native_global(vm, "assert", native_assert)
 	bind_native_global(vm, "error", native_error)
 	bind_native_global(vm, "push", native_push)
 	bind_native_global(vm, "pop", native_pop)
+	bind_native_global(vm, "insert", native_insert)
+	bind_native_global(vm, "remove", native_remove)
+	bind_native_global(vm, "slice", native_slice)
+	bind_native_global(vm, "keys", native_keys)
+	bind_native_global(vm, "vals", native_vals)
+	bind_native_global(vm, "pairs", native_pairs)
+	bind_native_global(vm, "merge", native_merge)
 	bind_native_global(vm, "print", native_print)
 	bind_native_global(vm, "write", native_write)
 }

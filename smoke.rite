@@ -1,4 +1,4 @@
-; Wisp smoke
+; Rite smoke
 ; A readable tour of the current semantic surface. Not a test suite.
 (def nl print)
 
@@ -7,7 +7,7 @@
 (nl)
 
 (def out print)
-(def label "wisp smoke")
+(def label "rite smoke")
 
 (out label)
 (out [nil true false 1 1.0 "text"])
@@ -19,6 +19,17 @@
       (type [])
       (type {})
       (type +)])
+
+(out [(nil? nil)
+      (bool? false)
+      (num? 1)
+      (num? 1.0)
+      (int? 1)
+      (float? 1.0)
+      (str? "x")
+      (vec? [])
+      (map? {})
+      (fn? print)])
 
 
 (nl)
@@ -49,7 +60,7 @@
 (print "== strings and output ==")
 (nl)
 
-(out (+ "name=" "wisp"))
+(out (+ "name=" "rite"))
 (out (+ "count=" 3 ", values=" [10 20 30]))
 (out (+ "map=" {:a 1 :b 2}))
 
@@ -64,7 +75,7 @@
 
 (write "line one\n")
 (write "line two\n")
-(print "quote: \"wisp\"")
+(print "quote: \"rite\"")
 (print "tab:\tend")
 (print "slash: \\")
 (print (+ "a\n" "b"))
@@ -91,7 +102,14 @@
 (out values)
 
 (out [(len values)
-      (len "wisp")])
+      (len "rite")])
+
+(def edited (copy values))
+
+(out (insert edited 1 15))
+(out (remove edited 2))
+(out (slice edited 1 2))
+(out (clear edited))
 
 
 (nl)
@@ -144,6 +162,18 @@
 (out [(record :extra)
       (len record)])
 (out record)
+
+(def record-copy (copy record))
+(set (record-copy :count) 99)
+
+(out [record record-copy])
+(out (= (record :tags) (record-copy :tags)))
+(out (keys record))
+(out (vals record))
+(out (pairs record))
+(out (merge {:a 1 :shared "first"}
+            {:b 2 :shared "second"}))
+(out (clear record-copy))
 
 
 (nl)

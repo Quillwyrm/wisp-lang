@@ -1,12 +1,12 @@
-# Wisp Language Reference
+# Rite Language Reference
 
-This document describes the intended core surface of Wisp.
+This document describes the intended core surface of Rite.
 
-Wisp is a small eager Lisp with s-expression syntax, lexical scope, mutable bindings, immutable lists, mutable vectors and maps, and first-class functions.
+Rite is a small eager Lisp with s-expression syntax, lexical scope, mutable bindings, immutable lists, mutable vectors and maps, and first-class functions.
 
 ## Source Shape
 
-A Wisp file is a sequence of top-level forms evaluated in order.
+A Rite file is a sequence of top-level forms evaluated in order.
 
 ```scheme
 (def x 10)
@@ -34,7 +34,7 @@ Line comments start with `;` and continue to the end of the line.
 
 ## Lexical Elements
 
-Wisp source consists of names, literals, lists, vectors, maps, comments, and whitespace.
+Rite source consists of names, literals, lists, vectors, maps, comments, and whitespace.
 
 Names are non-delimiter atoms that are not literals or number literals.
 
@@ -87,7 +87,7 @@ fn
 
 Special form names are reserved and cannot be used as binding names.
 
-Built-in functions are immutable global function bindings supplied by Wisp.
+Built-in functions are immutable global function bindings supplied by Rite.
 
 Built-in function names are not reserved.
 
@@ -133,7 +133,7 @@ empty list values
 
 ## Forms
 
-Wisp source has two form categories:
+Rite source has two form categories:
 
 ```text
 definitions
@@ -222,11 +222,11 @@ File top level is program-like. A file may be empty, may contain only definition
 
 ## Names and Scope
 
-Wisp uses lexical scope.
+Rite uses lexical scope.
 
 Each file has its own file scope.
 
-Wisp has one global environment. Built-in functions are immutable bindings in the global environment.
+Rite has one global environment. Built-in functions are immutable bindings in the global environment.
 
 Name lookup checks local body scopes first, then file scope, then the global environment.
 
@@ -930,7 +930,7 @@ Looking up an undefined name inside a closure is an error when that lookup is ev
 
 ### Vectors
 
-Vectors are heterogeneous, growable, mutable, 0-indexed sequences of Wisp values.
+Vectors are heterogeneous, growable, mutable, 0-indexed sequences of Rite values.
 
 Vector literals create fresh vectors.
 
@@ -939,7 +939,7 @@ Vector literals create fresh vectors.
 []
 ```
 
-Vectors may contain any Wisp value, including `nil`.
+Vectors may contain any Rite value, including `nil`.
 
 ```scheme
 [nil true 10 "dog"]
@@ -979,7 +979,7 @@ Maps are heterogeneous mutable associative containers.
 
 Any runtime value except `nil` may be a key.
 
-Map key equality follows Wisp equality:
+Map key equality follows Rite equality:
 
 ```text
 bools compare by value
@@ -997,13 +997,13 @@ Map display order is unspecified.
 
 Lists are immutable runtime values.
 
-Source lists are the surface shape of Wisp forms, not runtime list literals.
+Source lists are the surface shape of Rite forms, not runtime list literals.
 
-Lists may contain any Wisp value, including `nil`.
+Lists may contain any Rite value, including `nil`.
 
 ### Numbers
 
-Wisp has ints and floats.
+Rite has ints and floats.
 
 Integer literals are signed base-10 integers.
 
@@ -1114,7 +1114,7 @@ Name strings produce ordinary string values without including the leading colon.
 
 ## Built-in Functions
 
-Built-in functions are function values supplied by Wisp in the global environment.
+Built-in functions are function values supplied by Rite in the global environment.
 
 They are called the same way user functions are called.
 
@@ -1137,9 +1137,18 @@ Arguments are evaluated left-to-right before the built-in is called.
 | `=`, `!=` | 2 values | bool |
 | `<`, `<=`, `>`, `>=` | 2 numbers | bool |
 | `not` | 1 value | bool |
+| `nil?`, `bool?`, `num?`, `int?`, `float?` | 1 value | bool |
+| `str?`, `vec?`, `map?`, `fn?` | 1 value | bool |
 | `len` | 1 value | int |
+| `copy` | 1 vector or map | fresh vector or map |
+| `clear` | 1 vector or map | same emptied vector or map |
 | `push` | vector and 1+ values | vector |
 | `pop` | 1 vector | value |
+| `insert` | vector, index, value | vector |
+| `remove` | vector, index | removed value |
+| `slice` | vector, start, count | fresh vector |
+| `keys`, `vals`, `pairs` | 1 map | fresh vector |
+| `merge` | 2+ maps | fresh map |
 | `type` | 1 value | string |
 | `print` | 0+ values | nil |
 | `write` | 0+ values | nil |
@@ -1281,6 +1290,9 @@ All-int arithmetic is checked after each left-to-right `+`, `-`, or `*` step. If
 ```scheme
 (push vector value value...)
 (pop vector)
+(insert vector index value)
+(remove vector index)
+(slice vector start count)
 ```
 
 `push` accepts a vector and one or more values.
@@ -1313,6 +1325,61 @@ v
 
 `pop` from an empty vector is an error.
 
+`insert` mutates a vector by inserting a value before the given index and
+shifting later elements right. The index may range from zero through the vector
+length. It returns the vector.
+
+```scheme
+(def v [10 30])
+
+(insert v 1 20)
+; [10 20 30]
+```
+
+`remove` removes and returns the value at an index, shifting later elements
+left. Its index must be within the vector.
+
+```scheme
+(remove v 1)
+; 20
+
+v
+; [10 30]
+```
+
+`slice` returns a fresh shallow vector containing `count` elements starting at
+`start`. The complete range must be within the source vector.
+
+```scheme
+(slice [10 20 30 40] 1 2)
+; [20 30]
+```
+
+### Map Operations
+
+```scheme
+(keys map)
+(vals map)
+(pairs map)
+(merge map map...)
+```
+
+`keys` and `vals` return fresh vectors containing the entries of a map.
+
+`pairs` returns a fresh vector of fresh `[key value]` vectors.
+
+Map traversal order is unspecified. Within one `pairs` result, each key remains
+associated with its value.
+
+`merge` accepts two or more maps and returns a fresh map. Inputs are unchanged,
+and entries from later maps replace equal keys from earlier maps.
+
+```scheme
+(merge {:hp 100 :speed 4}
+       {:speed 8 :name "goblin"})
+; {hp 100 speed 8 name goblin}
+```
+
 ### Type
 
 ```scheme
@@ -1333,7 +1400,25 @@ map      -> "map"
 function -> "function"
 ```
 
-Native and Wisp functions both have the public type name `"function"`.
+Native and Rite functions both have the public type name `"function"`.
+
+### Predicates
+
+```scheme
+(nil? value)
+(bool? value)
+(num? value)
+(int? value)
+(float? value)
+(str? value)
+(vec? value)
+(map? value)
+(fn? value)
+```
+
+Each predicate accepts exactly one value and reports whether it belongs to that
+type. `num?` accepts both ints and floats. `fn?` accepts every public function
+value.
 
 ### Length
 
@@ -1360,6 +1445,35 @@ For strings, it returns the byte length of the UTF-8 string.
 
 (len "hello")
 ; 5
+```
+
+### Copy and Clear
+
+```scheme
+(copy collection)
+(clear collection)
+```
+
+Both functions accept vectors and maps.
+
+`copy` returns a fresh shallow collection. Nested vectors, maps, and other
+objects remain shared.
+
+`clear` removes every element or entry from the existing collection and returns
+that same collection.
+
+```scheme
+(def original [1 [2]])
+(def duplicate (copy original))
+
+(= original duplicate)
+; false
+
+(= (original 1) (duplicate 1))
+; true
+
+(clear duplicate)
+; []
 ```
 
 ### Boolean
@@ -1520,7 +1634,7 @@ If the condition is falsey, `assert` ends the current run. Without a message, th
 
 ## Display
 
-Wisp display writes values in a readable form.
+Rite display writes values in a readable form.
 
 ```text
 nil       -> nil

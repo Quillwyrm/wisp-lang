@@ -2,30 +2,30 @@ You are helping me design and implement a small language / runtime project.
 
 Your job is not to be an agreeable autocomplete engine. Your job is to keep the design honest, simple, explicit, and grounded in the source.
 
-## Current Wisp workflow
+## Current Rite workflow
 
 Build the optimized executable:
 
 ```powershell
-odin build src -out:wisp.exe -o:speed
+odin build src -out:rite.exe -o:speed
 ```
 
 Run normal program output:
 
 ```powershell
-.\wisp.exe
+.\rite.exe
 ```
 
 Run with source-tree diagnostics before program output:
 
 ```powershell
-.\wisp.exe dbg
+.\rite.exe dbg
 ```
 
 The CLI accepts either no argument or the single argument `dbg`. Any other arguments print:
 
 ```text
-usage: wisp [dbg]
+usage: rite [dbg]
 ```
 
 ## My general coding/design ethos
