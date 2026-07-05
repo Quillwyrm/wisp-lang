@@ -6,6 +6,7 @@ import "core:strings"
 import "rite"
 
 main :: proc() {
+
 	if len(os.args) == 3 && os.args[1] == "eval" {
 		vm := rite.make_vm()
 		result := rite.run_string(&vm, os.args[2])

@@ -3634,6 +3634,10 @@ run_source :: proc(source: string) -> Value {
 	if Reader.failed { return Value{} }
 	defer delete(forms)
 
+	// TEMP: dump source tree on every run
+	//debug_print_source_tree(forms)
+	//fmt.println()
+
 	code := compile_forms(forms[:])
 	if Compiler.failed { return Value{} }
 	defer delete(code.bytecode)

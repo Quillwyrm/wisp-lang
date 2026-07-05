@@ -2,13 +2,13 @@
 
 This document describes the intended core surface of Rite.
 
-Rite is a small eager Lisp with s-expression syntax, lexical scope, mutable bindings, immutable lists, mutable vectors and maps, and first-class functions.
+Rite is a small eager Lisp with s-expression syntax, lexical scope, mutable bindings, immutable lists, mutable vectorss, maps, and first-class functions.
 
 ## Source Shape
 
 A Rite file is a sequence of top-level forms evaluated in order.
 
-```scheme
+```clojure
 (def x 10)
 (print x)
 (+ x 1)
@@ -16,7 +16,7 @@ A Rite file is a sequence of top-level forms evaluated in order.
 
 A file may contain only definitions.
 
-```scheme
+```clojure
 (def x 10)
 (def y 20)
 ```
@@ -27,7 +27,7 @@ Newlines are whitespace.
 
 Line comments start with `;` and continue to the end of the line.
 
-```scheme
+```clojure
 ; comment
 (def x 10) ; comment
 ```
@@ -40,7 +40,7 @@ Names are non-delimiter atoms that are not literals or number literals.
 
 Examples:
 
-```scheme
+```clojure
 x
 player-name
 +
@@ -50,14 +50,14 @@ foo.1
 
 `:` is a delimiter and begins a name string.
 
-```scheme
+```clojure
 :hp
 ; "hp"
 ```
 
 The colon is not part of the resulting string. The tail must be non-empty.
 
-```scheme
+```clojure
 :
 ; error
 ```
@@ -146,20 +146,20 @@ An expression produces a value.
 
 Definitions are valid only directly at file top level or inside bodies. A definition is not an expression.
 
-```scheme
+```clojure
 (def x 10)
 ```
 
 Valid at file top level or in a body.
 
-```scheme
+```clojure
 (+ 1 (def x 10))
 ; error
 ```
 
 Invalid because function arguments are expression positions.
 
-```scheme
+```clojure
 [(def x 10)]
 ; error
 ```
@@ -168,7 +168,7 @@ Invalid because vector elements are expression positions.
 
 Use `do` when an expression position needs local definitions.
 
-```scheme
+```clojure
 (if alive
   (do
     (def message "alive")
@@ -190,19 +190,19 @@ A non-empty body must end with an expression. The body returns that expression's
 
 Definitions may appear earlier in the body.
 
-```scheme
+```clojure
 (do)
 ; nil
 ```
 
-```scheme
+```clojure
 (do
   (def x 10)
   x)
 ; 10
 ```
 
-```scheme
+```clojure
 (do
   (print "before")
   (def x 10)
@@ -212,7 +212,7 @@ Definitions may appear earlier in the body.
 
 A non-empty body cannot end with a definition.
 
-```scheme
+```clojure
 (do
   (def x 10))
 ; error
@@ -242,7 +242,7 @@ A duplicate definition for the same name in the same scope is an error.
 
 Bindings are ordered. A binding is visible only after its definition has been evaluated.
 
-```scheme
+```clojure
 (do
   x
   (def x 10)
@@ -250,7 +250,7 @@ Bindings are ordered. A binding is visible only after its definition has been ev
 ; error
 ```
 
-```scheme
+```clojure
 (do
   (def x 10)
   x)
@@ -263,7 +263,7 @@ A name lookup is an error if no visible binding exists.
 
 ### Value Definition
 
-```scheme
+```clojure
 (def name expr)
 ```
 
@@ -273,7 +273,7 @@ It evaluates `expr`, creates a new mutable binding named `name` in the current s
 
 The new binding is visible after the `def` has evaluated.
 
-```scheme
+```clojure
 (def x 10)
 
 x
@@ -282,7 +282,7 @@ x
 
 A duplicate definition in the same scope is an error.
 
-```scheme
+```clojure
 (def x 1)
 (def x 2)
 ; error
@@ -290,7 +290,7 @@ A duplicate definition in the same scope is an error.
 
 A local definition may shadow an outer binding.
 
-```scheme
+```clojure
 (def x 10)
 
 (do
@@ -304,12 +304,12 @@ x
 
 Because `def` is not an expression, it cannot be used as an argument, branch, vector element, initializer, or final body result.
 
-```scheme
+```clojure
 (def x (def y 10))
 ; error
 ```
 
-```scheme
+```clojure
 (if alive
   (def status "alive")
   "dead")
@@ -318,7 +318,7 @@ Because `def` is not an expression, it cannot be used as an argument, branch, ve
 
 ### Named Function Definition
 
-```scheme
+```clojure
 (def (name params...)
   body-form...)
 ```
@@ -327,7 +327,7 @@ A named function definition is a definition form.
 
 It defines `name` as a function in the current scope.
 
-```scheme
+```clojure
 (def (inc x)
   (+ x 1))
 
@@ -337,7 +337,7 @@ It defines `name` as a function in the current scope.
 
 It has the same user-visible meaning as defining the name with `fn`.
 
-```scheme
+```clojure
 (def inc
   (fn (x)
     (+ x 1)))
@@ -349,7 +349,7 @@ The function body is not evaluated when the named function is defined. It is eva
 
 An empty named function body returns `nil` when called.
 
-```scheme
+```clojure
 (def (noop))
 
 (noop)
@@ -358,7 +358,7 @@ An empty named function body returns `nil` when called.
 
 Named functions may call themselves recursively.
 
-```scheme
+```clojure
 (def (fact n)
   (if (= n 0)
     1
@@ -378,7 +378,7 @@ Expressions evaluate to values.
 
 Literal values evaluate to themselves.
 
-```scheme
+```clojure
 nil
 true
 false
@@ -390,7 +390,7 @@ false
 
 A name string is ordinary string syntax for delimiter-free text.
 
-```scheme
+```clojure
 (= :hp "hp")
 ; true
 ```
@@ -399,7 +399,7 @@ A name string is ordinary string syntax for delimiter-free text.
 
 A name expression reads the current visible binding for that name.
 
-```scheme
+```clojure
 (def x 10)
 
 x
@@ -412,13 +412,13 @@ Reading an undefined name is an error.
 
 A vector literal creates a fresh mutable vector.
 
-```scheme
+```clojure
 [expr expr expr]
 ```
 
 Elements are expressions evaluated left-to-right.
 
-```scheme
+```clojure
 (def x 10)
 
 [1 x (+ 1 2)]
@@ -427,7 +427,7 @@ Elements are expressions evaluated left-to-right.
 
 Definitions are not valid inside vector literals.
 
-```scheme
+```clojure
 [(def x 10)]
 ; error
 ```
@@ -436,7 +436,7 @@ Definitions are not valid inside vector literals.
 
 A map literal creates a fresh mutable map.
 
-```scheme
+```clojure
 {key-expr value-expr ...}
 ```
 
@@ -444,13 +444,13 @@ It must contain complete key/value pairs. For each pair, the key expression is
 evaluated first, then the value expression, then the entry is inserted. Pairs
 are processed left-to-right.
 
-```scheme
+```clojure
 {:hp 100 :name "Rook"}
 ```
 
 Equal keys are replaced by later entries.
 
-```scheme
+```clojure
 {:hp 100 :hp 90}
 ; {hp 90}
 ```
@@ -461,13 +461,13 @@ Definitions are not valid in key or value expression positions.
 
 A non-empty source list in expression position is evaluated as a form.
 
-```scheme
+```clojure
 (head arg arg)
 ```
 
 If the bare head is a special form name, that special form controls evaluation.
 
-```scheme
+```clojure
 (if alive "alive" "dead")
 (fn (x) (+ x 1))
 (do (def x 10) x)
@@ -477,14 +477,14 @@ Otherwise, the head and arguments follow normal call evaluation.
 
 An unresolved callee name is an error.
 
-```scheme
+```clojure
 (+ 1 2)
 ; 3
 ```
 
 Built-in functions may be read and called through other bindings.
 
-```scheme
+```clojure
 (def add +)
 
 (add 1 2)
@@ -493,7 +493,7 @@ Built-in functions may be read and called through other bindings.
 
 Built-in function names may be shadowed.
 
-```scheme
+```clojure
 (def + (fn (a b) 999))
 
 (+ 1 2)
@@ -502,7 +502,7 @@ Built-in function names may be shadowed.
 
 An empty source list in expression position is an error.
 
-```scheme
+```clojure
 ()
 ; error
 ```
@@ -511,7 +511,7 @@ An empty source list in expression position is an error.
 
 A call has this shape:
 
-```scheme
+```clojure
 (callee arg...)
 ```
 
@@ -535,7 +535,7 @@ A function call checks arity, creates a function scope, binds parameters, evalua
 
 Vector calls index the vector.
 
-```scheme
+```clojure
 (def v [10 20 30])
 
 (v 1)
@@ -551,7 +551,7 @@ An out-of-bounds vector index is an error.
 
 Map calls look up one key.
 
-```scheme
+```clojure
 (def player {:hp 100})
 
 (player :hp)
@@ -571,7 +571,7 @@ A special form is recognized only when its name appears as the head of an evalua
 
 ### Do
 
-```scheme
+```clojure
 (do
   body-form...)
 ```
@@ -580,12 +580,12 @@ A special form is recognized only when its name appears as the head of an evalua
 
 It creates a fresh lexical child scope, evaluates its body in that scope, and returns the body result.
 
-```scheme
+```clojure
 (do)
 ; nil
 ```
 
-```scheme
+```clojure
 (do
   (def x 10)
   (+ x 1))
@@ -594,7 +594,7 @@ It creates a fresh lexical child scope, evaluates its body in that scope, and re
 
 Bindings created inside `do` are not directly visible outside that scope.
 
-```scheme
+```clojure
 (do
   (def x 10)
   x)
@@ -606,7 +606,7 @@ x
 
 A non-empty `do` body must end with an expression.
 
-```scheme
+```clojure
 (do
   (def x 10))
 ; error
@@ -614,7 +614,7 @@ A non-empty `do` body must end with an expression.
 
 ### If
 
-```scheme
+```clojure
 (if cond then)
 (if cond then else)
 ```
@@ -633,7 +633,7 @@ Only the selected branch is evaluated.
 
 Branches are expression positions.
 
-```scheme
+```clojure
 (if true
   10
   20)
@@ -651,7 +651,7 @@ Branches are expression positions.
 
 Because branches are expressions, `def` cannot appear directly as a branch.
 
-```scheme
+```clojure
 (if alive
   (def status "alive")
   "dead")
@@ -660,7 +660,7 @@ Because branches are expressions, `def` cannot appear directly as a branch.
 
 Use `do` when a branch needs local definitions or multiple forms.
 
-```scheme
+```clojure
 (if alive
   (do
     (def message "alive")
@@ -673,14 +673,14 @@ Use `do` when a branch needs local definitions or multiple forms.
 
 The binding is not directly visible outside the branch's `do` scope.
 
-```scheme
+```clojure
 message
 ; error
 ```
 
 ### While
 
-```scheme
+```clojure
 (while cond
   body-form...)
 ```
@@ -701,7 +701,7 @@ Bindings created inside one iteration are not visible in subsequent iterations.
 
 Outer bindings may be mutated with `set`.
 
-```scheme
+```clojure
 (def i 0)
 
 (while (< i 3)
@@ -715,7 +715,7 @@ Outer bindings may be mutated with `set`.
 
 A non-empty `while` body must end with an expression.
 
-```scheme
+```clojure
 (while cond
   (def x 10))
 ; error
@@ -723,7 +723,7 @@ A non-empty `while` body must end with an expression.
 
 ### Fn
 
-```scheme
+```clojure
 (fn (params...)
   body-form...)
 ```
@@ -734,14 +734,14 @@ It creates an anonymous function that captures its lexical environment.
 
 Calling the function creates a fresh function scope, binds parameters to argument values, evaluates the function body, and returns the body result.
 
-```scheme
+```clojure
 (fn (x)
   (+ x 1))
 ```
 
 Function bodies use normal body rules.
 
-```scheme
+```clojure
 (fn (x)
   (print x)
   (+ x 1))
@@ -749,7 +749,7 @@ Function bodies use normal body rules.
 
 An empty function body returns `nil` when called.
 
-```scheme
+```clojure
 (fn ())
 ```
 
@@ -761,7 +761,7 @@ Duplicate parameter names are an error.
 
 ### Set
 
-```scheme
+```clojure
 (set target expr)
 ```
 
@@ -779,14 +779,14 @@ Targeting a known immutable binding is a compile error. The value expression is 
 
 Supported targets:
 
-```scheme
+```clojure
 (set name value)
 (set (receiver-expr index-expr) value)
 ```
 
 Binding mutation:
 
-```scheme
+```clojure
 (def x 10)
 
 (set x 20)
@@ -798,21 +798,21 @@ x
 
 Setting an undefined binding is an error.
 
-```scheme
+```clojure
 (set missing 10)
 ; error
 ```
 
 Supplied built-in global bindings are immutable and cannot be replaced with `set`.
 
-```scheme
+```clojure
 (set + (fn (a b) 999))
 ; error
 ```
 
 Built-in names may still be shadowed by mutable bindings.
 
-```scheme
+```clojure
 (def + (fn (a b) 999))
 
 (+ 1 2)
@@ -824,14 +824,14 @@ Built-in names may still be shadowed by mutable bindings.
 ; 123
 ```
 
-```scheme
+```clojure
 (set print (fn (value) nil))
 ; error
 ```
 
 Built-in names may still be shadowed by mutable bindings.
 
-```scheme
+```clojure
 (def print (fn (value) nil))
 
 (set print (fn (value) value))
@@ -840,7 +840,7 @@ Built-in names may still be shadowed by mutable bindings.
 
 Indexed mutation:
 
-```scheme
+```clojure
 (def v [10 20 30])
 
 (set (v 1) 99)
@@ -852,7 +852,7 @@ Indexed mutation:
 
 Map mutation inserts, replaces, or deletes an entry.
 
-```scheme
+```clojure
 (def player {:hp 100})
 
 (set (player :hp) 90)
@@ -887,7 +887,7 @@ Functions capture lexical bindings from their surrounding scopes.
 
 A closure sees the current value of a captured mutable binding when it is called.
 
-```scheme
+```clojure
 (def (make-adder n)
   (fn (x)
     (+ x n)))
@@ -900,7 +900,7 @@ A closure sees the current value of a captured mutable binding when it is called
 
 Closures capture bindings, not value snapshots.
 
-```scheme
+```clojure
 (def (make-counter)
   (def n 0)
 
@@ -919,7 +919,7 @@ Closures capture bindings, not value snapshots.
 
 Looking up an undefined name inside a closure is an error when that lookup is evaluated.
 
-```scheme
+```clojure
 (def f (fn () missing))
 
 (f)
@@ -934,20 +934,20 @@ Vectors are heterogeneous, growable, mutable, 0-indexed sequences of Rite values
 
 Vector literals create fresh vectors.
 
-```scheme
+```clojure
 [10 20 30]
 []
 ```
 
 Vectors may contain any Rite value, including `nil`.
 
-```scheme
+```clojure
 [nil true 10 "dog"]
 ```
 
 Vectors are callable by index.
 
-```scheme
+```clojure
 (def v [10 20 30])
 
 (v 0)
@@ -959,7 +959,7 @@ Vectors are callable by index.
 
 Vectors are indexed through call syntax using normal call evaluation.
 
-```scheme
+```clojure
 ([10 20 30] 2)
 ; 30
 ```
@@ -972,7 +972,7 @@ An out-of-bounds vector index is an error.
 
 Maps are heterogeneous mutable associative containers.
 
-```scheme
+```clojure
 {}
 {:hp 100 :name "Rook"}
 ```
@@ -1019,7 +1019,7 @@ float   = ["-"], (
 
 Examples:
 
-```scheme
+```clojure
 10
 -10
 0
@@ -1035,14 +1035,14 @@ Examples:
 
 Exponent notation is not a number literal.
 
-```scheme
+```clojure
 1e3
 1e-3
 ```
 
 Hex, underscores, `nan`, and `inf` are not number literals.
 
-```scheme
+```clojure
 0x10
 1_000
 nan
@@ -1055,7 +1055,7 @@ Float literals must fit in the runtime float range.
 
 A numeric-looking atom that does not match the number grammar is a read error.
 
-```scheme
+```clojure
 -.
 1abc
 0x10
@@ -1064,7 +1064,7 @@ A numeric-looking atom that does not match the number grammar is a read error.
 
 Normal non-numeric atoms are read as names.
 
-```scheme
+```clojure
 foo
 foo.1
 .
@@ -1083,7 +1083,7 @@ Strings are immutable.
 
 String literals use double quotes.
 
-```scheme
+```clojure
 "hello"
 ```
 
@@ -1093,21 +1093,21 @@ A literal newline or carriage return inside a string is a read error.
 
 Strings compare by contents.
 
-```scheme
+```clojure
 (= "dog" "dog")
 ; true
 ```
 
 `len` returns the byte length of a string.
 
-```scheme
+```clojure
 (len "hello")
 ; 5
 ```
 
 Name strings produce ordinary string values without including the leading colon.
 
-```scheme
+```clojure
 :player-name
 ; "player-name"
 ```
@@ -1155,14 +1155,14 @@ Arguments are evaluated left-to-right before the built-in is called.
 | `assert` | 1 or 2 values | nil or ends the current run |
 | `error` | 1 value | ends the current run |
 
-```scheme
+```clojure
 (def + (fn (a b) 999))
 
 (+ 1 2)
 ; 999
 ```
 
-```scheme
+```clojure
 (def add +)
 
 (add 1 2)
@@ -1171,7 +1171,7 @@ Arguments are evaluated left-to-right before the built-in is called.
 
 ### Arithmetic
 
-```scheme
+```clojure
 (+ a b ...)
 (- a b ...)
 (* a b ...)
@@ -1185,7 +1185,7 @@ If every argument is a number, `+` returns their numeric sum.
 
 If any argument is a string, `+` returns a fresh string containing the display text of every argument in order.
 
-```scheme
+```clojure
 (+ "hp: " 100)
 ; "hp: 100"
 
@@ -1202,7 +1202,7 @@ Without a string argument, every argument to `+` must be a number.
 
 Numeric arithmetic reduces left-to-right.
 
-```scheme
+```clojure
 (+ 1 2 3)
 ; 6
 
@@ -1218,7 +1218,7 @@ Numeric arithmetic reduces left-to-right.
 
 `%` accepts exactly two numbers and computes floor-style modulo.
 
-```scheme
+```clojure
 (% 13 4)
 ; 1
 
@@ -1238,14 +1238,14 @@ Modulo by zero is an error.
 
 Zero-argument arithmetic is an error.
 
-```scheme
+```clojure
 (+)
 ; error
 ```
 
 Unary arithmetic is an error.
 
-```scheme
+```clojure
 (- 1)
 ; error
 
@@ -1255,7 +1255,7 @@ Unary arithmetic is an error.
 
 `/` always returns a float.
 
-```scheme
+```clojure
 (/ 4 2)
 ; 2.0
 
@@ -1265,7 +1265,7 @@ Unary arithmetic is an error.
 
 Dividing by zero is an error.
 
-```scheme
+```clojure
 (/ 1 0)
 ; error
 
@@ -1277,7 +1277,7 @@ With numeric arguments, `+`, `-`, and `*` return an int when every argument is a
 
 All-int arithmetic is checked after each left-to-right `+`, `-`, or `*` step. If an intermediate result does not fit in an int, evaluation is an error.
 
-```scheme
+```clojure
 (+ 1 2)
 ; 3
 
@@ -1287,7 +1287,7 @@ All-int arithmetic is checked after each left-to-right `+`, `-`, or `*` step. If
 
 ### Vector Mutation
 
-```scheme
+```clojure
 (push vector value value...)
 (pop vector)
 (insert vector index value)
@@ -1301,7 +1301,7 @@ Its first argument must produce a vector.
 
 It evaluates the vector followed by every value from left to right. If argument evaluation succeeds, `push` appends each value from left to right, mutates the vector in place, and returns the vector.
 
-```scheme
+```clojure
 (def v [10 20])
 
 (push v 30 40)
@@ -1315,7 +1315,7 @@ v
 
 It removes and returns the final value.
 
-```scheme
+```clojure
 (pop v)
 ; 40
 
@@ -1329,7 +1329,7 @@ v
 shifting later elements right. The index may range from zero through the vector
 length. It returns the vector.
 
-```scheme
+```clojure
 (def v [10 30])
 
 (insert v 1 20)
@@ -1339,7 +1339,7 @@ length. It returns the vector.
 `remove` removes and returns the value at an index, shifting later elements
 left. Its index must be within the vector.
 
-```scheme
+```clojure
 (remove v 1)
 ; 20
 
@@ -1350,14 +1350,14 @@ v
 `slice` returns a fresh shallow vector containing `count` elements starting at
 `start`. The complete range must be within the source vector.
 
-```scheme
+```clojure
 (slice [10 20 30 40] 1 2)
 ; [20 30]
 ```
 
 ### Map Operations
 
-```scheme
+```clojure
 (keys map)
 (vals map)
 (pairs map)
@@ -1374,7 +1374,7 @@ associated with its value.
 `merge` accepts two or more maps and returns a fresh map. Inputs are unchanged,
 and entries from later maps replace equal keys from earlier maps.
 
-```scheme
+```clojure
 (merge {:hp 100 :speed 4}
        {:speed 8 :name "goblin"})
 ; {hp 100 speed 8 name goblin}
@@ -1382,7 +1382,7 @@ and entries from later maps replace equal keys from earlier maps.
 
 ### Type
 
-```scheme
+```clojure
 (type value)
 ```
 
@@ -1404,7 +1404,7 @@ Native and Rite functions both have the public type name `"function"`.
 
 ### Predicates
 
-```scheme
+```clojure
 (nil? value)
 (bool? value)
 (num? value)
@@ -1422,7 +1422,7 @@ value.
 
 ### Length
 
-```scheme
+```clojure
 (len value)
 ```
 
@@ -1436,7 +1436,7 @@ For maps, it returns the number of entries.
 
 For strings, it returns the byte length of the UTF-8 string.
 
-```scheme
+```clojure
 (len [10 20 30])
 ; 3
 
@@ -1449,7 +1449,7 @@ For strings, it returns the byte length of the UTF-8 string.
 
 ### Copy and Clear
 
-```scheme
+```clojure
 (copy collection)
 (clear collection)
 ```
@@ -1462,7 +1462,7 @@ objects remain shared.
 `clear` removes every element or entry from the existing collection and returns
 that same collection.
 
-```scheme
+```clojure
 (def original [1 [2]])
 (def duplicate (copy original))
 
@@ -1478,7 +1478,7 @@ that same collection.
 
 ### Boolean
 
-```scheme
+```clojure
 (not value)
 ```
 
@@ -1490,7 +1490,7 @@ It returns `true` when the argument is falsey and `false` otherwise.
 
 Only `nil` and `false` are falsey.
 
-```scheme
+```clojure
 (not nil)
 ; true
 
@@ -1512,7 +1512,7 @@ Only `nil` and `false` are falsey.
 
 ### Equality
 
-```scheme
+```clojure
 (= a b)
 (!= a b)
 ```
@@ -1539,14 +1539,14 @@ Numeric equality treats equal int and float values as equal.
 
 Mixed numeric equality converts the int to a float before comparison.
 
-```scheme
+```clojure
 (= 1 1.0)
 ; true
 ```
 
 ### Ordering
 
-```scheme
+```clojure
 (< a b)
 (<= a b)
 (> a b)
@@ -1561,7 +1561,7 @@ Mixed numeric ordering converts the int to a float before comparison.
 
 Non-number operands are an error.
 
-```scheme
+```clojure
 (< 1 2)
 ; true
 
@@ -1574,7 +1574,7 @@ Non-number operands are an error.
 
 ### Output
 
-```scheme
+```clojure
 (print value...)
 (write value...)
 ```
@@ -1587,7 +1587,7 @@ With no arguments, `print` writes a newline.
 
 Strings print without quotes.
 
-```scheme
+```clojure
 (print "hello" 10)
 ; prints:
 ; hello 10
@@ -1599,7 +1599,7 @@ Strings print without quotes.
 
 Function values print as opaque function values.
 
-```scheme
+```clojure
 (print (fn () 10))
 ; prints:
 ; <function>
@@ -1607,7 +1607,7 @@ Function values print as opaque function values.
 
 ### Errors
 
-```scheme
+```clojure
 (assert condition)
 (assert condition message)
 (error message)
@@ -1621,13 +1621,13 @@ If the condition is truthy, `assert` returns `nil`.
 
 If the condition is falsey, `assert` ends the current run. Without a message, the diagnostic is `assertion failed`. With a message, the diagnostic is `assertion failed: ` followed by the message value's display text.
 
-```scheme
+```clojure
 (assert (< hp max-hp) "hp out of range")
 ```
 
 `error` accepts exactly one value and ends the current run with a runtime diagnostic using that value's display text.
 
-```scheme
+```clojure
 (error "unreachable")
 (error [1 2 3])
 ```
@@ -1649,7 +1649,7 @@ functions -> <function>
 
 Examples:
 
-```scheme
+```clojure
 (print nil)
 ; nil
 
@@ -1670,7 +1670,7 @@ Examples:
 
 ### Local Scope
 
-```scheme
+```clojure
 (def x 10)
 
 (do
@@ -1686,7 +1686,7 @@ x
 
 ### Ordered Definitions
 
-```scheme
+```clojure
 (do
   (print "start")
   (def x 10)
@@ -1695,7 +1695,7 @@ x
 ; returns 11
 ```
 
-```scheme
+```clojure
 (do
   (print x)
   (def x 10)
@@ -1705,7 +1705,7 @@ x
 
 ### Conditional Branches
 
-```scheme
+```clojure
 (def alive true)
 
 (if alive
@@ -1716,7 +1716,7 @@ x
 
 Use `do` when a branch needs local definitions.
 
-```scheme
+```clojure
 (if alive
   (do
     (def message "alive")
@@ -1729,14 +1729,14 @@ Use `do` when a branch needs local definitions.
 
 The binding is not directly visible outside the branch's `do` scope.
 
-```scheme
+```clojure
 message
 ; error
 ```
 
 ### Looping
 
-```scheme
+```clojure
 (def i 0)
 
 (while (< i 3)
@@ -1748,7 +1748,7 @@ message
 ; returns nil
 ```
 
-```scheme
+```clojure
 (def done false)
 
 (while (not done)
@@ -1760,7 +1760,7 @@ message
 
 ### Functions and Mutation
 
-```scheme
+```clojure
 (def (make-counter)
   (def n 0)
 
@@ -1782,7 +1782,7 @@ message
 
 ### Vectors
 
-```scheme
+```clojure
 (def v [10 20 30])
 
 (v 1)
@@ -1803,7 +1803,7 @@ message
 
 ### Maps
 
-```scheme
+```clojure
 (def player {:hp 100 :name "Rook"})
 
 (player :hp)
