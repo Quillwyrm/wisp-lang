@@ -135,6 +135,115 @@
 
 
 (nl)
+(print "== functions and closures ==")
+(nl)
+
+(def inc
+  (fn (x)
+    (+ x 1)))
+
+(out (inc 10))
+(out ((fn (x) (+ x 2)) 10))
+(out ((fn ())))
+(out ((fn ()
+        (def x 1))))
+
+(def make-adder
+  (fn (n)
+    (fn (x)
+      (+ x n))))
+
+(def add10 (make-adder 10))
+(out (add10 5))
+
+(def root-x 10)
+(def read-root
+  (fn ()
+    root-x))
+
+(out (read-root))
+(set root-x 20)
+(out (read-root))
+
+(def make-counter
+  (fn ()
+    (def n 0)
+    (fn ()
+      (set n (+ n 1))
+      n)))
+
+(def c (make-counter))
+(out (c))
+(out (c))
+
+(def make-pair
+  (fn ()
+    (def x 0)
+    [(fn ()
+       (set x (+ x 1))
+       x)
+     (fn ()
+       x)]))
+
+(def pair (make-pair))
+(def inc2 (pair 0))
+(def get2 (pair 1))
+
+(out (inc2))
+(out (get2))
+
+(def outer
+  (fn ()
+    (def x 10)
+    (fn ()
+      (fn ()
+        x))))
+
+(def middle (outer))
+(def inner (middle))
+(out (inner))
+
+(def get-do
+  (do
+    (def x 77)
+    (fn () x)))
+
+(out (get-do))
+
+(def makers [])
+(def i 0)
+
+(while (< i 3)
+  (do
+    (def x i)
+    (push makers (fn () x))
+    (set i (+ i 1))))
+
+(out [((makers 0))
+      ((makers 1))
+      ((makers 2))])
+
+(out
+  (do
+    (def + (fn (a b) 999))
+    ((fn () (+ 1 2)))))
+
+(def fn-vec [inc add10])
+(out ((fn-vec 0) 5))
+(out [(fn? inc) (type inc)])
+(out fn-vec)
+
+(def fact nil)
+(set fact
+  (fn (n)
+    (if (= n 0)
+      1
+      (* n (fact (- n 1))))))
+
+(out (fact 5))
+
+
+(nl)
 (print "== maps ==")
 (nl)
 

@@ -1,125 +1,2300 @@
-diff --git a/smoke.wisp b/smoke.wisp
-index f6345b9..98aed6f 100644
---- a/smoke.wisp
-+++ b/smoke.wisp
-@@ -56,6 +56,18 @@
- (print "print")
+diff --git a/changes.diff b/changes.diff
+index 84ac332..e69de29 100644
+--- a/changes.diff
++++ b/changes.diff
+@@ -1,125 +0,0 @@
+-diff --git a/smoke.wisp b/smoke.wisp
+-index f6345b9..98aed6f 100644
+---- a/smoke.wisp
+-+++ b/smoke.wisp
+-@@ -56,6 +56,18 @@
+- (print "print")
+- 
+- 
+-+(nl)
+-+(print "== string escapes ==")
+-+(nl)
+-+
+-+(write "line one\n")
+-+(write "line two\n")
+-+(print "quote: \"wisp\"")
+-+(print "tab:\tend")
+-+(print "slash: \\")
+-+(print (+ "a\n" "b"))
+-+
+-+
+- (nl)
+- (print "== vectors ==")
+- (nl)
+-diff --git a/src/wisp/wisp.odin b/src/wisp/wisp.odin
+-index 750fd43..bf43662 100644
+---- a/src/wisp/wisp.odin
+-+++ b/src/wisp/wisp.odin
+-@@ -645,29 +645,92 @@ read_atom :: proc() -> Value {
+- read_string :: proc() -> Value {
+- 	Reader.index += 1
+- 	start := Reader.index
+-+	has_escapes := false
+-+	decoded: [dynamic]u8
+- 
+- 	for Reader.index < len(Reader.source) {
+- 		ch := Reader.source[Reader.index]
+- 
+- 		if ch == '\n' || ch == '\r' {
+-+			if has_escapes {
+-+				delete(decoded)
+-+			}
+- 			reader_error("unterminated string")
+- 			return Value{}
+- 		}
+- 
+- 		if ch == '\\' {
+--			reader_error("string escapes not implemented")
+--			return Value{}
+-+			if !has_escapes {
+-+				has_escapes = true
+-+				decoded = make([dynamic]u8)
+-+
+-+				for i := start; i < Reader.index; i += 1 {
+-+					append(&decoded, Reader.source[i])
+-+				}
+-+			}
+-+
+-+			Reader.index += 1
+-+
+-+			if Reader.index >= len(Reader.source) {
+-+				delete(decoded)
+-+				reader_error("unterminated string")
+-+				return Value{}
+-+			}
+-+
+-+			escaped := Reader.source[Reader.index]
+-+			Reader.index += 1
+-+
+-+			if escaped == '\n' || escaped == '\r' {
+-+				delete(decoded)
+-+				reader_error("unterminated string")
+-+				return Value{}
+-+			}
+-+
+-+			switch escaped {
+-+			case 'n':
+-+				append(&decoded, '\n')
+-+			case 't':
+-+				append(&decoded, '\t')
+-+			case 'r':
+-+				append(&decoded, '\r')
+-+			case '\\':
+-+				append(&decoded, '\\')
+-+			case '"':
+-+				append(&decoded, '"')
+-+			case:
+-+				delete(decoded)
+-+				reader_error(fmt.tprintf("invalid escape sequence '\\%c'", escaped))
+-+				return Value{}
+-+			}
+-+
+-+			continue
+- 		}
+- 
+- 		if ch == '"' {
+-+			if has_escapes {
+-+				Reader.index += 1
+-+				text := string(decoded[:])
+-+				object := new_string_object(text)
+-+				delete(decoded)
+-+				return Value(cast(^Object)object)
+-+			}
+-+
+- 			text := Reader.source[start:Reader.index]
+- 			Reader.index += 1
+- 			return Value(cast(^Object)new_string_object(text))
+- 		}
+- 
+-+		if has_escapes {
+-+			append(&decoded, ch)
+-+		}
+-+
+- 		Reader.index += 1
+- 	}
+- 
+-+	if has_escapes {
+-+		delete(decoded)
+-+	}
+-+
+- 	reader_error("unterminated string")
+- 	return Value{}
+- }
+-diff --git a/wisp.exe b/wisp.exe
+-index 08441b9..aa4f10b 100644
+-Binary files a/wisp.exe and b/wisp.exe differ
+diff --git a/hello.rite b/hello.rite
+index af681f0..a8d6822 100644
+--- a/hello.rite
++++ b/hello.rite
+@@ -1,4 +1,6 @@
+-(def i 0)
+-(while (< i 11)
+-    (print "tick" i)
+-    (set i (+ i 1)))
++(def lang "rite")
++
++(def greet (fn (name)
++    (print (+ "Hello " name "!"))))
++
++(greet lang)
+diff --git a/rite.exe b/rite.exe
+index e4b9f81..13f7063 100644
+Binary files a/rite.exe and b/rite.exe differ
+diff --git a/smoke.rite b/smoke.rite
+index c0df95e..655be87 100644
+--- a/smoke.rite
++++ b/smoke.rite
+@@ -134,6 +134,115 @@
+ (out [ + - * / ])
  
  
 +(nl)
-+(print "== string escapes ==")
++(print "== functions and closures ==")
 +(nl)
 +
-+(write "line one\n")
-+(write "line two\n")
-+(print "quote: \"wisp\"")
-+(print "tab:\tend")
-+(print "slash: \\")
-+(print (+ "a\n" "b"))
++(def inc
++  (fn (x)
++    (+ x 1)))
++
++(out (inc 10))
++(out ((fn (x) (+ x 2)) 10))
++(out ((fn ())))
++(out ((fn ()
++        (def x 1))))
++
++(def make-adder
++  (fn (n)
++    (fn (x)
++      (+ x n))))
++
++(def add10 (make-adder 10))
++(out (add10 5))
++
++(def root-x 10)
++(def read-root
++  (fn ()
++    root-x))
++
++(out (read-root))
++(set root-x 20)
++(out (read-root))
++
++(def make-counter
++  (fn ()
++    (def n 0)
++    (fn ()
++      (set n (+ n 1))
++      n)))
++
++(def c (make-counter))
++(out (c))
++(out (c))
++
++(def make-pair
++  (fn ()
++    (def x 0)
++    [(fn ()
++       (set x (+ x 1))
++       x)
++     (fn ()
++       x)]))
++
++(def pair (make-pair))
++(def inc2 (pair 0))
++(def get2 (pair 1))
++
++(out (inc2))
++(out (get2))
++
++(def outer
++  (fn ()
++    (def x 10)
++    (fn ()
++      (fn ()
++        x))))
++
++(def middle (outer))
++(def inner (middle))
++(out (inner))
++
++(def get-do
++  (do
++    (def x 77)
++    (fn () x)))
++
++(out (get-do))
++
++(def makers [])
++(def i 0)
++
++(while (< i 3)
++  (do
++    (def x i)
++    (push makers (fn () x))
++    (set i (+ i 1))))
++
++(out [((makers 0))
++      ((makers 1))
++      ((makers 2))])
++
++(out
++  (do
++    (def + (fn (a b) 999))
++    ((fn () (+ 1 2)))))
++
++(def fn-vec [inc add10])
++(out ((fn-vec 0) 5))
++(out [(fn? inc) (type inc)])
++(out fn-vec)
++
++(def fact nil)
++(set fact
++  (fn (n)
++    (if (= n 0)
++      1
++      (* n (fact (- n 1))))))
++
++(out (fact 5))
 +
 +
  (nl)
- (print "== vectors ==")
+ (print "== maps ==")
  (nl)
-diff --git a/src/wisp/wisp.odin b/src/wisp/wisp.odin
-index 750fd43..bf43662 100644
---- a/src/wisp/wisp.odin
-+++ b/src/wisp/wisp.odin
-@@ -645,29 +645,92 @@ read_atom :: proc() -> Value {
- read_string :: proc() -> Value {
- 	Reader.index += 1
- 	start := Reader.index
-+	has_escapes := false
-+	decoded: [dynamic]u8
+diff --git a/src/rite/rite.odin b/src/rite/rite.odin
+index af0bb60..552d5cb 100644
+--- a/src/rite/rite.odin
++++ b/src/rite/rite.odin
+@@ -18,6 +18,7 @@ ObjectKind :: enum u8 {
+ 	VECTOR,
+ 	MAP,
+ 	NATIVE_FUNCTION,
++	FUNCTION,
+ }
  
- 	for Reader.index < len(Reader.source) {
- 		ch := Reader.source[Reader.index]
+ // Every heap object starts with this header so ^Object can dispatch by kind.
+@@ -93,6 +94,10 @@ Opcode :: enum u8 {
+ 	MOVE, // ABC: A=dst, B=src
  
- 		if ch == '\n' || ch == '\r' {
-+			if has_escapes {
-+				delete(decoded)
-+			}
- 			reader_error("unterminated string")
- 			return Value{}
+ 	GET_GLOBAL, // ABx: A=dst, Bx=global index
++	LOAD_FUNCTION, // ABx: A=dst, Bx=child code index
++	GET_UPVALUE,   // ABx: A=dst, Bx=upvalue index
++	SET_UPVALUE,   // ABx: A=src, Bx=upvalue index
++	CLOSE_UPVALUES, // ABx: A=first slot to close
+ 
+ 	ADD, // ABC: A=dst, B=first operand, C=operand count
+ 	SUB, // ABC: A=dst, B=first operand, C=operand count
+@@ -140,11 +145,45 @@ InstAx :: bit_field u32 {
+ 	a:  u32    | 24,
+ }
+ 
+-// Finished executable chunk owning its bytecode and constants.
++UpvalueDesc :: struct {
++	from_parent_local: bool,
++	index:             int,
++}
++
++Upvalue :: struct {
++	// slot_index >= 0 means this upvalue still aliases a live VM slot.
++	// slot_index < 0 means closed owns the captured value.
++	slot_index: int,
++	closed:     Value,
++}
++
++// Finished executable body. Root file code and fn body code share this exact shape.
+ Code :: struct {
+-	bytecode:         [dynamic]u32,
+-	constants:        [dynamic]Value,
++	bytecode:    []u32,
++	constants:   []Value,
++	child_codes: []^Code,
++
+ 	frame_slot_count: int,
++	param_count:      int,
++
++	upvalue_descs: []UpvalueDesc,
++}
++
++FunctionObject :: struct {
++	header: Object,
++	code:   ^Code,
++
++	upvalues: []^Upvalue,
++}
++
++CallFrame :: struct {
++	code:     ^Code,
++	upvalues: []^Upvalue,
++
++	instruction_index: int,
++
++	slot_base:         int,
++	caller_slot_count: int,
+ }
+ 
+ // Append-only globals keep stable indexes embedded in bytecode.
+@@ -154,14 +193,18 @@ GlobalBinding :: struct {
+ 	mutable: bool,
+ }
+ 
+-// Mutable one-code build state transferred by end_code.
+-Active_Code: Code
+-
+ // One host-owned execution world; globals persist while slots reset per run.
+ VM :: struct {
+-	slots:        [dynamic]Value,
+-	globals:      [dynamic]GlobalBinding,
+-	symbols:      [dynamic]^SymbolObject,
++	slots:      [dynamic]Value,
++	slot_count: int,
++
++	frames: [dynamic]CallFrame,
++
++	open_upvalues: [dynamic]^Upvalue,
++
++	globals: [dynamic]GlobalBinding,
++	symbols: [dynamic]^SymbolObject,
++
+ 	// Current host-operation diagnostic; empty means no error.
+ 	error_string: string,
+ }
+@@ -179,11 +222,13 @@ LocalBinding :: struct {
+ 	slot:   int,
+ }
+ 
+-// Visible binding entries occupy 0..<local_count; explicit slots may sit above
+-// live outer expressions. next_slot is the first unreserved frame slot.
+-Compiler := struct {
+-	// A failed build is disposable; its diagnostic lives in Active_VM.error_string.
+-	failed: bool,
++CodeBuilder :: struct {
++	bytecode:    [dynamic]u32,
++	constants:   [dynamic]Value,
++	child_codes: [dynamic]^Code,
++
++	frame_slot_count: int,
++	param_count:      int,
+ 
+ 	local_bindings: [MAX_FRAME_SLOTS]LocalBinding,
+ 	local_count:    int,
+@@ -191,6 +236,16 @@ Compiler := struct {
+ 	// Begins duplicate-definition checks for the current lexical scope.
+ 	current_scope_local_start: int,
+ 	next_slot:                 int,
++
++	upvalue_descs:   [dynamic]UpvalueDesc,
++	upvalue_symbols: [dynamic]^SymbolObject,
++
++	parent: ^CodeBuilder,
++}
++
++Compiler := struct {
++	// A failed build is disposable; its diagnostic lives in Active_VM.error_string.
++	failed: bool,
+ }{}
+ 
+ // Single-active reader; failed poisons the current read until read_source resets it.
+@@ -287,6 +342,14 @@ new_map_object :: proc() -> ^MapObject {
+ 	return object
+ }
+ 
++new_function_object :: proc(code: ^Code) -> ^FunctionObject {
++	function := new(FunctionObject)
++	function.header.kind = .FUNCTION
++	function.code = code
++	function.upvalues = make([]^Upvalue, len(code.upvalue_descs))
++	return function
++}
++
+ 
+ // Map storage ====================================================================================
+ 
+@@ -338,7 +401,7 @@ map_key_hash :: proc(key: Value) -> (u64, bool) {
+ 			assert(false, "symbol is not a Rite runtime value")
+ 			return 0, false
+ 
+-		case .LIST, .VECTOR, .MAP, .NATIVE_FUNCTION:
++		case .LIST, .VECTOR, .MAP, .NATIVE_FUNCTION, .FUNCTION:
+ 			bits := u64(uintptr(value))
+ 			return hash.fnv64a(mem.ptr_to_bytes(&bits)), true
+ 		}
+@@ -1033,8 +1096,8 @@ debug_print_value_tree :: proc(value: Value, continuations: ^[dynamic]bool) {
+ 				pop(continuations)
+ 			}
+ 
+-		case .NATIVE_FUNCTION:
+-			assert(false, "function in source tree")
++		case .NATIVE_FUNCTION, .FUNCTION:
++			assert(false, "runtime function object in reader tree")
+ 		}
+ 	}
+ }
+@@ -1171,7 +1234,7 @@ append_value_text :: proc(parts: ^[dynamic]string, value: Value, parents: ^[dyna
+ 			append(parts, "}")
+ 			pop(parents)
+ 
+-		case .NATIVE_FUNCTION:
++		case .NATIVE_FUNCTION, .FUNCTION:
+ 			append(parts, "<function>")
+ 
+ 		case:
+@@ -1233,46 +1296,109 @@ bind_native_global :: proc(vm: ^VM, name: string, native: NativeProc) -> int {
+ 
+ // Code construction ==============================================================================
+ 
+-begin_code :: proc() {
+-	Active_Code = Code{
+-		bytecode         = make([dynamic]u32),
+-		constants        = make([dynamic]Value),
+-		frame_slot_count = 0,
++begin_code :: proc(parent: ^CodeBuilder, param_count: int) -> CodeBuilder {
++	assert(param_count >= 0 && param_count <= MAX_FRAME_SLOTS, "param count out of range")
++
++	return CodeBuilder{
++		bytecode    = make([dynamic]u32),
++		constants   = make([dynamic]Value),
++		child_codes = make([dynamic]^Code),
++
++		frame_slot_count = param_count,
++		param_count      = param_count,
++
++		local_count = 0,
++
++		current_scope_local_start = 0,
++		next_slot                 = param_count,
++
++		upvalue_descs   = make([dynamic]UpvalueDesc),
++		upvalue_symbols = make([dynamic]^SymbolObject),
++
++		parent = parent,
+ 	}
+ }
+ 
+-// The returned Code takes ownership of the active dynamic arrays.
+-end_code :: proc() -> Code {
+-	code := Active_Code
+-	Active_Code = Code{}
++end_code :: proc(builder: ^CodeBuilder) -> ^Code {
++	bytecode := make([]u32, len(builder.bytecode))
++	copy(bytecode, builder.bytecode[:])
++
++	constants := make([]Value, len(builder.constants))
++	copy(constants, builder.constants[:])
++
++	child_codes := make([]^Code, len(builder.child_codes))
++	copy(child_codes, builder.child_codes[:])
++
++	upvalue_descs := make([]UpvalueDesc, len(builder.upvalue_descs))
++	copy(upvalue_descs, builder.upvalue_descs[:])
++
++	delete(builder.bytecode)
++	delete(builder.constants)
++	delete(builder.child_codes)
++	delete(builder.upvalue_descs)
++	delete(builder.upvalue_symbols)
++
++	code := new(Code)
++	code^ = Code{
++		bytecode         = bytecode,
++		constants        = constants,
++		child_codes      = child_codes,
++		frame_slot_count = builder.frame_slot_count,
++		param_count      = builder.param_count,
++		upvalue_descs    = upvalue_descs,
++	}
+ 	return code
+ }
+ 
++delete_code :: proc(code: ^Code) {
++	for child in code.child_codes {
++		delete_code(child)
++	}
++
++	delete(code.bytecode)
++	delete(code.constants)
++	delete(code.child_codes)
++	delete(code.upvalue_descs)
++	free(code)
++}
++
++delete_code_builder :: proc(builder: ^CodeBuilder) {
++	for child in builder.child_codes {
++		delete_code(child)
++	}
++
++	delete(builder.bytecode)
++	delete(builder.constants)
++	delete(builder.child_codes)
++	delete(builder.upvalue_descs)
++	delete(builder.upvalue_symbols)
++}
++
+ 
+ // Constants ======================================================================================
+ 
+-const_value :: proc(value: Value) -> int {
+-	append(&Active_Code.constants, value)
+-	return len(Active_Code.constants) - 1
++const_value :: proc(builder: ^CodeBuilder, value: Value) -> int {
++	append(&builder.constants, value)
++	return len(builder.constants) - 1
+ }
+ 
+ 
+ // Bytecode emission ==============================================================================
+ 
+ // frame_slot_count is the highest touched frame slot plus one.
+-record_slots :: proc(slots: ..int) {
++record_slots :: proc(builder: ^CodeBuilder, slots: ..int) {
+ 	for slot in slots {
+ 		assert(slot >= 0 && slot <= int(max(u8)), "frame slot does not fit u8")
+ 
+ 		needed_slot_count := slot + 1
+-		if needed_slot_count > Active_Code.frame_slot_count {
+-			Active_Code.frame_slot_count = needed_slot_count
++		if needed_slot_count > builder.frame_slot_count {
++			builder.frame_slot_count = needed_slot_count
+ 		}
+ 	}
+ }
+ 
+-emit_ABC :: proc(op: Opcode, a, b, c: int) {
+-	append(&Active_Code.bytecode, u32(InstABC{
++emit_ABC :: proc(builder: ^CodeBuilder, op: Opcode, a, b, c: int) {
++	append(&builder.bytecode, u32(InstABC{
+ 		op = op,
+ 		a  = u8(a),
+ 		b  = u8(b),
+@@ -1280,193 +1406,216 @@ emit_ABC :: proc(op: Opcode, a, b, c: int) {
+ 	}))
+ }
+ 
+-emit_ABx :: proc(op: Opcode, a, b: int) {
+-	append(&Active_Code.bytecode, u32(InstABx{
++emit_ABx :: proc(builder: ^CodeBuilder, op: Opcode, a, b: int) {
++	append(&builder.bytecode, u32(InstABx{
+ 		op = op,
+ 		a  = u8(a),
+ 		b  = u16(b),
+ 	}))
+ }
+ 
+-emit_load_nil :: proc(dst: int) {
+-	record_slots(dst)
+-	emit_ABx(.LOAD_NIL, dst, 0)
++emit_load_nil :: proc(builder: ^CodeBuilder, dst: int) {
++	record_slots(builder, dst)
++	emit_ABx(builder, .LOAD_NIL, dst, 0)
+ }
+ 
+-emit_load_true :: proc(dst: int) {
+-	record_slots(dst)
+-	emit_ABx(.LOAD_TRUE, dst, 0)
++emit_load_true :: proc(builder: ^CodeBuilder, dst: int) {
++	record_slots(builder, dst)
++	emit_ABx(builder, .LOAD_TRUE, dst, 0)
+ }
+ 
+-emit_load_false :: proc(dst: int) {
+-	record_slots(dst)
+-	emit_ABx(.LOAD_FALSE, dst, 0)
++emit_load_false :: proc(builder: ^CodeBuilder, dst: int) {
++	record_slots(builder, dst)
++	emit_ABx(builder, .LOAD_FALSE, dst, 0)
+ }
+ 
+-emit_load_const :: proc(dst, constant_index: int) {
+-	record_slots(dst)
+-	emit_ABx(.LOAD_CONST, dst, constant_index)
++emit_load_const :: proc(builder: ^CodeBuilder, dst, constant_index: int) {
++	record_slots(builder, dst)
++	emit_ABx(builder, .LOAD_CONST, dst, constant_index)
+ }
+ 
+-emit_move :: proc(dst, src: int) {
+-	record_slots(dst, src)
+-	emit_ABC(.MOVE, dst, src, 0)
++emit_move :: proc(builder: ^CodeBuilder, dst, src: int) {
++	record_slots(builder, dst, src)
++	emit_ABC(builder, .MOVE, dst, src, 0)
+ }
+ 
+-emit_get_global :: proc(dst, global_index: int) {
+-	record_slots(dst)
+-	emit_ABx(.GET_GLOBAL, dst, global_index)
++emit_get_global :: proc(builder: ^CodeBuilder, dst, global_index: int) {
++	record_slots(builder, dst)
++	emit_ABx(builder, .GET_GLOBAL, dst, global_index)
+ }
+ 
+-emit_add :: proc(dst, first_slot, count: int) {
++emit_add :: proc(builder: ^CodeBuilder, dst, first_slot, count: int) {
+ 	assert(count >= 0 && count <= int(max(u8)), "ADD argument count does not fit u8")
+-	record_slots(dst)
++	record_slots(builder, dst)
+ 	if count > 0 {
+-		record_slots(first_slot, first_slot + count - 1)
++		record_slots(builder, first_slot, first_slot + count - 1)
+ 	}
+-	emit_ABC(.ADD, dst, first_slot, count)
++	emit_ABC(builder, .ADD, dst, first_slot, count)
+ }
+ 
+-emit_sub :: proc(dst, first_slot, count: int) {
++emit_sub :: proc(builder: ^CodeBuilder, dst, first_slot, count: int) {
+ 	assert(count >= 0 && count <= int(max(u8)), "SUB argument count does not fit u8")
+-	record_slots(dst)
++	record_slots(builder, dst)
+ 	if count > 0 {
+-		record_slots(first_slot, first_slot + count - 1)
++		record_slots(builder, first_slot, first_slot + count - 1)
+ 	}
+-	emit_ABC(.SUB, dst, first_slot, count)
++	emit_ABC(builder, .SUB, dst, first_slot, count)
+ }
+ 
+-emit_mul :: proc(dst, first_slot, count: int) {
++emit_mul :: proc(builder: ^CodeBuilder, dst, first_slot, count: int) {
+ 	assert(count >= 0 && count <= int(max(u8)), "MUL argument count does not fit u8")
+-	record_slots(dst)
++	record_slots(builder, dst)
+ 	if count > 0 {
+-		record_slots(first_slot, first_slot + count - 1)
++		record_slots(builder, first_slot, first_slot + count - 1)
+ 	}
+-	emit_ABC(.MUL, dst, first_slot, count)
++	emit_ABC(builder, .MUL, dst, first_slot, count)
+ }
+ 
+-emit_div :: proc(dst, first_slot, count: int) {
++emit_div :: proc(builder: ^CodeBuilder, dst, first_slot, count: int) {
+ 	assert(count >= 0 && count <= int(max(u8)), "DIV argument count does not fit u8")
+-	record_slots(dst)
++	record_slots(builder, dst)
+ 	if count > 0 {
+-		record_slots(first_slot, first_slot + count - 1)
++		record_slots(builder, first_slot, first_slot + count - 1)
+ 	}
+-	emit_ABC(.DIV, dst, first_slot, count)
++	emit_ABC(builder, .DIV, dst, first_slot, count)
+ }
+ 
+-emit_mod :: proc(dst, lhs, rhs: int) {
+-	record_slots(dst, lhs, rhs)
+-	emit_ABC(.MOD, dst, lhs, rhs)
++emit_mod :: proc(builder: ^CodeBuilder, dst, lhs, rhs: int) {
++	record_slots(builder, dst, lhs, rhs)
++	emit_ABC(builder, .MOD, dst, lhs, rhs)
+ }
+ 
+-emit_equal :: proc(dst, lhs, rhs: int) {
+-	record_slots(dst, lhs, rhs)
+-	emit_ABC(.EQUAL, dst, lhs, rhs)
++emit_equal :: proc(builder: ^CodeBuilder, dst, lhs, rhs: int) {
++	record_slots(builder, dst, lhs, rhs)
++	emit_ABC(builder, .EQUAL, dst, lhs, rhs)
+ }
+ 
+-emit_less :: proc(dst, lhs, rhs: int) {
+-	record_slots(dst, lhs, rhs)
+-	emit_ABC(.LESS, dst, lhs, rhs)
++emit_less :: proc(builder: ^CodeBuilder, dst, lhs, rhs: int) {
++	record_slots(builder, dst, lhs, rhs)
++	emit_ABC(builder, .LESS, dst, lhs, rhs)
+ }
+ 
+-emit_less_equal :: proc(dst, lhs, rhs: int) {
+-	record_slots(dst, lhs, rhs)
+-	emit_ABC(.LESS_EQUAL, dst, lhs, rhs)
++emit_less_equal :: proc(builder: ^CodeBuilder, dst, lhs, rhs: int) {
++	record_slots(builder, dst, lhs, rhs)
++	emit_ABC(builder, .LESS_EQUAL, dst, lhs, rhs)
+ }
+ 
+-emit_greater :: proc(dst, lhs, rhs: int) {
+-	record_slots(dst, lhs, rhs)
+-	emit_ABC(.GREATER, dst, lhs, rhs)
++emit_greater :: proc(builder: ^CodeBuilder, dst, lhs, rhs: int) {
++	record_slots(builder, dst, lhs, rhs)
++	emit_ABC(builder, .GREATER, dst, lhs, rhs)
+ }
+ 
+-emit_greater_equal :: proc(dst, lhs, rhs: int) {
+-	record_slots(dst, lhs, rhs)
+-	emit_ABC(.GREATER_EQUAL, dst, lhs, rhs)
++emit_greater_equal :: proc(builder: ^CodeBuilder, dst, lhs, rhs: int) {
++	record_slots(builder, dst, lhs, rhs)
++	emit_ABC(builder, .GREATER_EQUAL, dst, lhs, rhs)
+ }
+ 
+-emit_not :: proc(dst, src: int) {
+-	record_slots(dst, src)
+-	emit_ABC(.NOT, dst, src, 0)
++emit_not :: proc(builder: ^CodeBuilder, dst, src: int) {
++	record_slots(builder, dst, src)
++	emit_ABC(builder, .NOT, dst, src, 0)
+ }
+ 
+-emit_len :: proc(dst, src: int) {
+-	record_slots(dst, src)
+-	emit_ABC(.LEN, dst, src, 0)
++emit_len :: proc(builder: ^CodeBuilder, dst, src: int) {
++	record_slots(builder, dst, src)
++	emit_ABC(builder, .LEN, dst, src, 0)
+ }
+ 
+-emit_call :: proc(base, argument_count: int) {
++emit_call :: proc(builder: ^CodeBuilder, base, argument_count: int) {
+ 	assert(argument_count >= 0 && argument_count <= int(max(u8)), "call argument count does not fit u8")
+ 
+-	record_slots(base)
++	record_slots(builder, base)
+ 	if argument_count > 0 {
+-		record_slots(base + argument_count)
++		record_slots(builder, base + argument_count)
+ 	}
+-	emit_ABC(.CALL, base, argument_count, 0)
++	emit_ABC(builder, .CALL, base, argument_count, 0)
+ }
+ 
+-emit_new_vector :: proc(dst, capacity: int) {
++emit_new_vector :: proc(builder: ^CodeBuilder, dst, capacity: int) {
+ 	assert(capacity >= 0 && capacity <= int(max(u16)), "vector capacity does not fit u16")
+-	record_slots(dst)
+-	emit_ABx(.NEW_VECTOR, dst, capacity)
++	record_slots(builder, dst)
++	emit_ABx(builder, .NEW_VECTOR, dst, capacity)
+ }
+ 
+-emit_new_map :: proc(dst, capacity: int) {
++emit_new_map :: proc(builder: ^CodeBuilder, dst, capacity: int) {
+ 	assert(capacity >= 0 && capacity <= int(max(u16)), "map capacity does not fit u16")
+-	record_slots(dst)
+-	emit_ABx(.NEW_MAP, dst, capacity)
++	record_slots(builder, dst)
++	emit_ABx(builder, .NEW_MAP, dst, capacity)
+ }
+ 
+-emit_vector_push :: proc(vector_slot, value_slot: int) {
+-	record_slots(vector_slot, value_slot)
+-	emit_ABC(.VECTOR_PUSH, vector_slot, value_slot, 0)
++emit_vector_push :: proc(builder: ^CodeBuilder, vector_slot, value_slot: int) {
++	record_slots(builder, vector_slot, value_slot)
++	emit_ABC(builder, .VECTOR_PUSH, vector_slot, value_slot, 0)
+ }
+ 
+-emit_vector_pop :: proc(dst, vector_slot: int) {
+-	record_slots(dst, vector_slot)
+-	emit_ABC(.VECTOR_POP, dst, vector_slot, 0)
++emit_vector_pop :: proc(builder: ^CodeBuilder, dst, vector_slot: int) {
++	record_slots(builder, dst, vector_slot)
++	emit_ABC(builder, .VECTOR_POP, dst, vector_slot, 0)
+ }
+ 
+-emit_set_index :: proc(receiver_slot, index_slot, value_slot: int) {
+-	record_slots(receiver_slot, index_slot, value_slot)
+-	emit_ABC(.SET_INDEX, receiver_slot, index_slot, value_slot)
++emit_set_index :: proc(builder: ^CodeBuilder, receiver_slot, index_slot, value_slot: int) {
++	record_slots(builder, receiver_slot, index_slot, value_slot)
++	emit_ABC(builder, .SET_INDEX, receiver_slot, index_slot, value_slot)
+ }
+ 
+-emit_return :: proc(src: int) {
+-	record_slots(src)
+-	emit_ABx(.RETURN, src, 0)
++emit_load_function :: proc(builder: ^CodeBuilder, dst, child_code_index: int) {
++	assert(child_code_index >= 0 && child_code_index <= int(max(u16)), "child code index does not fit u16")
++	record_slots(builder, dst)
++	emit_ABx(builder, .LOAD_FUNCTION, dst, child_code_index)
+ }
+ 
+-emit_Ax :: proc(op: Opcode, a: int) {
++emit_get_upvalue :: proc(builder: ^CodeBuilder, dst, upvalue_index: int) {
++	assert(upvalue_index >= 0 && upvalue_index <= int(max(u16)), "upvalue index does not fit u16")
++	record_slots(builder, dst)
++	emit_ABx(builder, .GET_UPVALUE, dst, upvalue_index)
++}
++
++emit_set_upvalue :: proc(builder: ^CodeBuilder, upvalue_index, src: int) {
++	assert(upvalue_index >= 0 && upvalue_index <= int(max(u16)), "upvalue index does not fit u16")
++	record_slots(builder, src)
++	emit_ABx(builder, .SET_UPVALUE, src, upvalue_index)
++}
++
++emit_close_upvalues :: proc(builder: ^CodeBuilder, first_slot: int) {
++	assert(first_slot >= 0 && first_slot <= int(max(u8)), "close slot does not fit u8")
++	emit_ABx(builder, .CLOSE_UPVALUES, first_slot, 0)
++}
++
++emit_return :: proc(builder: ^CodeBuilder, src: int) {
++	record_slots(builder, src)
++	emit_ABx(builder, .RETURN, src, 0)
++}
++
++emit_Ax :: proc(builder: ^CodeBuilder, op: Opcode, a: int) {
+ 	assert(a >= 0 && a <= 0xffffff, "Ax operand does not fit u24")
+-	append(&Active_Code.bytecode, u32(InstAx{
++	append(&builder.bytecode, u32(InstAx{
+ 		op = op,
+ 		a  = u32(a),
+ 	}))
+ }
+ 
+-emit_jump :: proc(target_index: int) {
+-	emit_Ax(.JUMP, target_index)
++emit_jump :: proc(builder: ^CodeBuilder, target_index: int) {
++	emit_Ax(builder, .JUMP, target_index)
+ }
+ 
+-emit_jump_if_falsey :: proc(cond_slot, target_index: int) {
++emit_jump_if_falsey :: proc(builder: ^CodeBuilder, cond_slot, target_index: int) {
+ 	assert(target_index >= 0 && target_index <= int(max(u16)), "jump target does not fit u16")
+-	record_slots(cond_slot)
+-	emit_ABx(.JUMP_IF_FALSEY, cond_slot, target_index)
++	record_slots(builder, cond_slot)
++	emit_ABx(builder, .JUMP_IF_FALSEY, cond_slot, target_index)
+ }
+ 
+-patch_jump_target :: proc(jump_index, target_index: int) {
+-	op := Opcode(u8(Active_Code.bytecode[jump_index] & 0xff))
++patch_jump_target :: proc(builder: ^CodeBuilder, jump_index, target_index: int) {
++	op := Opcode(u8(builder.bytecode[jump_index] & 0xff))
+ 
+ 	if op == .JUMP {
+ 		assert(target_index >= 0 && target_index <= 0xffffff, "jump target does not fit u24")
+-		Active_Code.bytecode[jump_index] = u32(InstAx{op = .JUMP, a = u32(target_index)})
++		builder.bytecode[jump_index] = u32(InstAx{op = .JUMP, a = u32(target_index)})
+ 		return
+ 	}
+ 
+ 	if op == .JUMP_IF_FALSEY {
+ 		assert(target_index >= 0 && target_index <= int(max(u16)), "jump target does not fit u16")
+-		old := InstABx(Active_Code.bytecode[jump_index])
+-		Active_Code.bytecode[jump_index] = u32(InstABx{op = .JUMP_IF_FALSEY, a = old.a, b = u16(target_index)})
++		old := InstABx(builder.bytecode[jump_index])
++		builder.bytecode[jump_index] = u32(InstABx{op = .JUMP_IF_FALSEY, a = old.a, b = u16(target_index)})
+ 		return
+ 	}
+ 
+@@ -1477,40 +1626,109 @@ patch_jump_target :: proc(jump_index, target_index: int) {
+ // Compiler =======================================================================================
+ 
+ // Claims one frame slot above every value and binding that is currently live.
+-claim_slot :: proc() -> int {
+-	if Compiler.next_slot >= MAX_FRAME_SLOTS {
++claim_slot :: proc(builder: ^CodeBuilder) -> int {
++	if builder.next_slot >= MAX_FRAME_SLOTS {
+ 		compile_error("code uses too many frame slots")
+ 		return 0
+ 	}
+ 
+-	slot := Compiler.next_slot
+-	Compiler.next_slot += 1
++	slot := builder.next_slot
++	builder.next_slot += 1
+ 	return slot
+ }
+ 
+ // Reserves a contiguous slot range ending immediately before slot_after_last.
+-reserve_slots_until :: proc(slot_after_last: int) {
++reserve_slots_until :: proc(builder: ^CodeBuilder, slot_after_last: int) {
+ 	if slot_after_last > MAX_FRAME_SLOTS {
+ 		compile_error("code uses too many frame slots")
+ 		return
+ 	}
+ 
+-	if Compiler.next_slot < slot_after_last {
+-		Compiler.next_slot = slot_after_last
++	if builder.next_slot < slot_after_last {
++		builder.next_slot = slot_after_last
+ 	}
+ }
+ 
+ // Searches visible bindings from newest to oldest.
+-find_local :: proc(symbol: ^SymbolObject) -> (int, bool) {
+-	for i := Compiler.local_count - 1; i >= 0; i -= 1 {
+-		if Compiler.local_bindings[i].symbol == symbol {
+-			return Compiler.local_bindings[i].slot, true
++find_local :: proc(builder: ^CodeBuilder, symbol: ^SymbolObject) -> (int, bool) {
++	for i := builder.local_count - 1; i >= 0; i -= 1 {
++		if builder.local_bindings[i].symbol == symbol {
++			return builder.local_bindings[i].slot, true
+ 		}
+ 	}
+ 
+ 	return -1, false
+ }
+ 
++symbol_is_reserved_name :: proc(symbol: ^SymbolObject) -> bool {
++	return symbol.text == "def" ||
++	       symbol.text == "set" ||
++	       symbol.text == "do" ||
++	       symbol.text == "if" ||
++	       symbol.text == "while" ||
++	       symbol.text == "fn"
++}
++
++find_upvalue :: proc(builder: ^CodeBuilder, symbol: ^SymbolObject) -> (int, bool) {
++	for i := 0; i < len(builder.upvalue_symbols); i += 1 {
++		if builder.upvalue_symbols[i] == symbol {
++			return i, true
++		}
++	}
++	return -1, false
++}
++
++add_upvalue :: proc(builder: ^CodeBuilder, symbol: ^SymbolObject, desc: UpvalueDesc) -> int {
++	existing_index, found := find_upvalue(builder, symbol)
++	if found {
++		return existing_index
++	}
++
++	append(&builder.upvalue_symbols, symbol)
++	append(&builder.upvalue_descs, desc)
++	return len(builder.upvalue_descs) - 1
++}
++
++resolve_upvalue :: proc(builder: ^CodeBuilder, symbol: ^SymbolObject) -> (int, bool) {
++	if builder.parent == nil {
++		return -1, false
++	}
++
++	parent_slot, parent_has_local := find_local(builder.parent, symbol)
++	if parent_has_local {
++		index := add_upvalue(builder, symbol, UpvalueDesc{
++			from_parent_local = true,
++			index             = parent_slot,
++		})
++		return index, true
++	}
++
++	parent_upvalue, parent_has_upvalue := resolve_upvalue(builder.parent, symbol)
++	if parent_has_upvalue {
++		index := add_upvalue(builder, symbol, UpvalueDesc{
++			from_parent_local = false,
++			index             = parent_upvalue,
++		})
++		return index, true
++	}
++
++	return -1, false
++}
++
++lexical_name_visible :: proc(builder: ^CodeBuilder, symbol: ^SymbolObject) -> bool {
++	current := builder
++	for current != nil {
++		_, found := find_local(current, symbol)
++		if found {
++			return true
++		}
++
++		current = current.parent
++	}
++
++	return false
++}
++
+ form_is_definition :: proc(value: Value) -> bool {
+ 	object, is_object := value.(^Object)
+ 	if !is_object || object.kind != .LIST {
+@@ -1530,20 +1748,26 @@ form_is_definition :: proc(value: Value) -> bool {
+ 	return (cast(^SymbolObject)head).text == "def"
+ }
+ 
+-compile_constant :: proc(value: Value, dst: int) {
+-	if len(Active_Code.constants) > int(max(u16)) {
++compile_constant :: proc(builder: ^CodeBuilder, value: Value, dst: int) {
++	if len(builder.constants) > int(max(u16)) {
+ 		compile_error("code uses too many constants")
+ 		return
+ 	}
+ 
+-	constant_index := const_value(value)
+-	emit_load_const(dst, constant_index)
++	constant_index := const_value(builder, value)
++	emit_load_const(builder, dst, constant_index)
+ }
+ 
+-compile_name_expr :: proc(symbol: ^SymbolObject, dst: int) {
+-	local_slot, local_found := find_local(symbol)
++compile_name_expr :: proc(builder: ^CodeBuilder, symbol: ^SymbolObject, dst: int) {
++	local_slot, local_found := find_local(builder, symbol)
+ 	if local_found {
+-		emit_move(dst, local_slot)
++		emit_move(builder, dst, local_slot)
++		return
++	}
++
++	upvalue_index, upvalue_found := resolve_upvalue(builder, symbol)
++	if upvalue_found {
++		emit_get_upvalue(builder, dst, upvalue_index)
+ 		return
+ 	}
+ 
+@@ -1554,66 +1778,66 @@ compile_name_expr :: proc(symbol: ^SymbolObject, dst: int) {
+ 			return
  		}
  
- 		if ch == '\\' {
--			reader_error("string escapes not implemented")
--			return Value{}
-+			if !has_escapes {
-+				has_escapes = true
-+				decoded = make([dynamic]u8)
+-		emit_get_global(dst, global_index)
++		emit_get_global(builder, dst, global_index)
+ 		return
+ 	}
+ 
+ 	compile_error(fmt.tprintf("undefined name `%s`", symbol.text))
+ }
+ 
+-compile_vector_expr :: proc(vector: ^VectorObject, dst: int) {
++compile_vector_expr :: proc(builder: ^CodeBuilder, vector: ^VectorObject, dst: int) {
+ 	// Pushes determine length; this only avoids backing-storage growth.
+ 	capacity_hint := len(vector.items)
+ 	if capacity_hint > int(max(u16)) {
+ 		capacity_hint = int(max(u16))
+ 	}
+ 
+-	emit_new_vector(dst, capacity_hint)
++	emit_new_vector(builder, dst, capacity_hint)
+ 
+ 	if len(vector.items) == 0 {
+ 		return
+ 	}
+ 
+-	item_slot := claim_slot()
++	item_slot := claim_slot(builder)
+ 	if Compiler.failed { return }
+ 
+ 	for item in vector.items {
+-		compile_expr(item, item_slot)
++		compile_expr(builder, item, item_slot)
+ 		if Compiler.failed { return }
+ 
+-		emit_vector_push(dst, item_slot)
++		emit_vector_push(builder, dst, item_slot)
+ 	}
+ }
+ 
+-compile_map_expr :: proc(map_object: ^MapObject, dst: int) {
++compile_map_expr :: proc(builder: ^CodeBuilder, map_object: ^MapObject, dst: int) {
+ 	// Source entries are linear pairs; runtime table capacity is only a hint.
+ 	capacity_hint := len(map_object.entries)
+ 	if capacity_hint > int(max(u16)) {
+ 		capacity_hint = int(max(u16))
+ 	}
+ 
+-	emit_new_map(dst, capacity_hint)
++	emit_new_map(builder, dst, capacity_hint)
+ 
+ 	if len(map_object.entries) == 0 {
+ 		return
+ 	}
+ 
+-	key_slot := claim_slot()
+-	value_slot := claim_slot()
++	key_slot := claim_slot(builder)
++	value_slot := claim_slot(builder)
+ 	if Compiler.failed { return }
+ 
+ 	for entry in map_object.entries {
+-		compile_expr(entry.key, key_slot)
++		compile_expr(builder, entry.key, key_slot)
+ 		if Compiler.failed { return }
+ 
+-		compile_expr(entry.value, value_slot)
++		compile_expr(builder, entry.value, value_slot)
+ 		if Compiler.failed { return }
+ 
+-		emit_set_index(dst, key_slot, value_slot)
++		emit_set_index(builder, dst, key_slot, value_slot)
+ 	}
+ }
+ 
+-compile_def :: proc(form: Value) {
++compile_def :: proc(builder: ^CodeBuilder, form: Value) {
+ 	object, is_object := form.(^Object)
+ 	assert(is_object && object.kind == .LIST, "compile_def expected list form")
+ 
+@@ -1630,165 +1854,149 @@ compile_def :: proc(form: Value) {
+ 	}
+ 
+ 	name := cast(^SymbolObject)name_object
+-	if name.text == "def" ||
+-	   name.text == "set" ||
+-	   name.text == "do" ||
+-	   name.text == "if" ||
+-	   name.text == "while" ||
+-	   name.text == "fn" {
++	if symbol_is_reserved_name(name) {
+ 		compile_error(fmt.tprintf("cannot define reserved name `%s`", name.text))
+ 		return
+ 	}
+ 
+-	for i := Compiler.current_scope_local_start; i < Compiler.local_count; i += 1 {
+-		if Compiler.local_bindings[i].symbol == name {
++	for i := builder.current_scope_local_start; i < builder.local_count; i += 1 {
++		if builder.local_bindings[i].symbol == name {
+ 			compile_error(fmt.tprintf("duplicate definition `%s` in the same scope", name.text))
+ 			return
+ 		}
+ 	}
+ 
+-	binding_slot := claim_slot()
++	binding_slot := claim_slot(builder)
+ 	if Compiler.failed { return }
+ 
+-	// The binding becomes visible only after its value has been compiled.
+-	compile_expr(list.items[2], binding_slot)
++	// Ordered def: the binding is not visible while its RHS compiles.
++	compile_expr(builder, list.items[2], binding_slot)
+ 	if Compiler.failed { return }
+ 
+-	Compiler.local_bindings[Compiler.local_count] = LocalBinding{
++	builder.local_bindings[builder.local_count] = LocalBinding{
+ 		symbol = name,
+ 		slot   = binding_slot,
+ 	}
+-	Compiler.local_count += 1
++	builder.local_count += 1
+ }
+ 
+-// Definitions persist through the body; the final form supplies dst.
+-// Empty bodies produce nil, and non-final expression results are discarded.
+-compile_body :: proc(forms: []Value, dst: int) {
+-	if len(forms) == 0 {
+-		emit_load_nil(dst)
+-		return
+-	}
+-
+-	for i := 0; i < len(forms); i += 1 {
+-		form := forms[i]
+-		is_last := i + 1 == len(forms)
++// Definitions mutate the local environment and do not become the body result.
++// The last expression result wins; defs-only and empty bodies return nil.
++compile_body :: proc(builder: ^CodeBuilder, forms: []Value, dst: int) {
++	had_result_expr := false
+ 
++	for form in forms {
+ 		if form_is_definition(form) {
+-			if is_last {
+-				compile_error("body cannot end with a definition")
+-				return
+-			}
+-
+-			compile_def(form)
++			compile_def(builder, form)
+ 			if Compiler.failed { return }
+ 			continue
+ 		}
+ 
+-		if is_last {
+-			compile_expr(form, dst)
+-			return
+-		}
+-
+-		slot_mark := Compiler.next_slot
+-		discard_slot := claim_slot()
+-		if Compiler.failed { return }
+-
+-		compile_expr(form, discard_slot)
++		compile_expr(builder, form, dst)
+ 		if Compiler.failed { return }
++		had_result_expr = true
++	}
+ 
+-		Compiler.next_slot = slot_mark
++	if !had_result_expr {
++		emit_load_nil(builder, dst)
+ 	}
+ }
+ 
+-compile_do :: proc(list: ^ListObject, dst: int) {
++compile_do :: proc(builder: ^CodeBuilder, list: ^ListObject, dst: int) {
+ 	// A do body owns its bindings and restores the outer live-slot boundary.
+-	local_mark := Compiler.local_count
+-	slot_mark := Compiler.next_slot
+-	outer_scope_start := Compiler.current_scope_local_start
++	local_mark := builder.local_count
++	slot_mark := builder.next_slot
++	outer_scope_start := builder.current_scope_local_start
 +
-+				for i := start; i < Reader.index; i += 1 {
-+					append(&decoded, Reader.source[i])
++	builder.current_scope_local_start = local_mark
++	compile_body(builder, list.items[1:], dst)
++	if Compiler.failed { return }
+ 
+-	Compiler.current_scope_local_start = local_mark
+-	compile_body(list.items[1:], dst)
++	emit_close_upvalues(builder, slot_mark)
+ 
+-	Compiler.local_count = local_mark
+-	Compiler.next_slot = slot_mark
+-	Compiler.current_scope_local_start = outer_scope_start
++	builder.local_count = local_mark
++	builder.next_slot = slot_mark
++	builder.current_scope_local_start = outer_scope_start
+ }
+ 
+-compile_if :: proc(list: ^ListObject, dst: int) {
++compile_if :: proc(builder: ^CodeBuilder, list: ^ListObject, dst: int) {
+ 	if len(list.items) < 3 || len(list.items) > 4 {
+ 		compile_error("`if` expects a condition, then-branch, and optional else-branch")
+ 		return
+ 	}
+ 
+-	compile_expr(list.items[1], dst)
++	compile_expr(builder, list.items[1], dst)
+ 	if Compiler.failed { return }
+ 
+-	false_jump := len(Active_Code.bytecode)
+-	emit_jump_if_falsey(dst, 0)
++	false_jump := len(builder.bytecode)
++	emit_jump_if_falsey(builder, dst, 0)
+ 	if Compiler.failed { return }
+ 
+-	compile_expr(list.items[2], dst)
++	compile_expr(builder, list.items[2], dst)
+ 	if Compiler.failed { return }
+ 
+-	end_jump := len(Active_Code.bytecode)
+-	emit_jump(0)
++	end_jump := len(builder.bytecode)
++	emit_jump(builder, 0)
+ 	if Compiler.failed { return }
+ 
+-	patch_jump_target(false_jump, len(Active_Code.bytecode))
++	patch_jump_target(builder, false_jump, len(builder.bytecode))
+ 
+ 	if len(list.items) == 4 {
+-		compile_expr(list.items[3], dst)
++		compile_expr(builder, list.items[3], dst)
+ 	} else {
+-		emit_load_nil(dst)
++		emit_load_nil(builder, dst)
+ 	}
+ 	if Compiler.failed { return }
+ 
+-	patch_jump_target(end_jump, len(Active_Code.bytecode))
++	patch_jump_target(builder, end_jump, len(builder.bytecode))
+ }
+ 
+-compile_while :: proc(list: ^ListObject, dst: int) {
++compile_while :: proc(builder: ^CodeBuilder, list: ^ListObject, dst: int) {
+ 	if len(list.items) < 2 {
+ 		compile_error("`while` expects a condition")
+ 		return
+ 	}
+ 
+-	local_mark := Compiler.local_count
+-	slot_mark := Compiler.next_slot
+-	outer_scope_start := Compiler.current_scope_local_start
++	local_mark := builder.local_count
++	slot_mark := builder.next_slot
++	outer_scope_start := builder.current_scope_local_start
+ 
+-	discard_slot := claim_slot()
++	discard_slot := claim_slot(builder)
+ 	if Compiler.failed { return }
+ 
+-	loop_start := len(Active_Code.bytecode)
++	loop_start := len(builder.bytecode)
+ 
+-	compile_expr(list.items[1], discard_slot)
++	compile_expr(builder, list.items[1], discard_slot)
+ 	if Compiler.failed { return }
+ 
+-	exit_jump := len(Active_Code.bytecode)
+-	emit_jump_if_falsey(discard_slot, 0)
++	exit_jump := len(builder.bytecode)
++	emit_jump_if_falsey(builder, discard_slot, 0)
+ 	if Compiler.failed { return }
+ 
+-	Compiler.current_scope_local_start = Compiler.local_count
++	builder.current_scope_local_start = builder.local_count
++	body_slot_mark := builder.next_slot
+ 
+-	body_discard_slot := claim_slot()
++	body_discard_slot := claim_slot(builder)
+ 	if Compiler.failed { return }
+ 
+-	compile_body(list.items[2:], body_discard_slot)
++	compile_body(builder, list.items[2:], body_discard_slot)
+ 	if Compiler.failed { return }
+ 
+-	Compiler.local_count = local_mark
+-	Compiler.next_slot = slot_mark
+-	Compiler.current_scope_local_start = outer_scope_start
++	emit_close_upvalues(builder, body_slot_mark)
+ 
+-	emit_jump(loop_start)
++	builder.local_count = local_mark
++	builder.next_slot = slot_mark
++	builder.current_scope_local_start = outer_scope_start
+ 
+-	patch_jump_target(exit_jump, len(Active_Code.bytecode))
++	emit_jump(builder, loop_start)
++
++	patch_jump_target(builder, exit_jump, len(builder.bytecode))
+ 	if Compiler.failed { return }
+ 
+-	emit_load_nil(dst)
++	emit_load_nil(builder, dst)
+ }
+ 
+-compile_set :: proc(list: ^ListObject, dst: int) {
++compile_set :: proc(builder: ^CodeBuilder, list: ^ListObject, dst: int) {
+ 	if len(list.items) != 3 {
+ 		compile_error("`set` expects a target and value")
+ 		return
+@@ -1806,14 +2014,23 @@ compile_set :: proc(list: ^ListObject, dst: int) {
+ 	if target_object.kind == .SYMBOL {
+ 		symbol := cast(^SymbolObject)target_object
+ 
+-		binding_slot, local_found := find_local(symbol)
++		binding_slot, local_found := find_local(builder, symbol)
+ 		if local_found {
+ 			// Visible binding slots are not general expression destinations.
+ 			// Compile the complete RHS into dst before updating the binding.
+-			compile_expr(value, dst)
++			compile_expr(builder, value, dst)
++			if Compiler.failed { return }
++
++			emit_move(builder, binding_slot, dst)
++			return
++		}
++
++		upvalue_index, upvalue_found := resolve_upvalue(builder, symbol)
++		if upvalue_found {
++			compile_expr(builder, value, dst)
+ 			if Compiler.failed { return }
+ 
+-			emit_move(binding_slot, dst)
++			emit_set_upvalue(builder, upvalue_index, dst)
+ 			return
+ 		}
+ 
+@@ -1839,27 +2056,27 @@ compile_set :: proc(list: ^ListObject, dst: int) {
+ 			return
+ 		}
+ 
+-		receiver_slot := claim_slot()
+-		index_slot := claim_slot()
++		receiver_slot := claim_slot(builder)
++		index_slot := claim_slot(builder)
+ 		if Compiler.failed { return }
+ 
+-		compile_expr(target_list.items[0], receiver_slot)
++		compile_expr(builder, target_list.items[0], receiver_slot)
+ 		if Compiler.failed { return }
+ 
+-		compile_expr(target_list.items[1], index_slot)
++		compile_expr(builder, target_list.items[1], index_slot)
+ 		if Compiler.failed { return }
+ 
+-		compile_expr(value, dst)
++		compile_expr(builder, value, dst)
+ 		if Compiler.failed { return }
+ 
+-		emit_set_index(receiver_slot, index_slot, dst)
++		emit_set_index(builder, receiver_slot, index_slot, dst)
+ 		return
+ 	}
+ 
+ 	compile_error("invalid `set` target")
+ }
+ 
+-compile_ordinary_call :: proc(list: ^ListObject, dst: int) {
++compile_ordinary_call :: proc(builder: ^CodeBuilder, list: ^ListObject, dst: int) {
+ 	argument_count := len(list.items) - 1
+ 	if argument_count > int(max(u8)) {
+ 		compile_error("call has too many arguments")
+@@ -1867,23 +2084,23 @@ compile_ordinary_call :: proc(list: ^ListObject, dst: int) {
+ 	}
+ 
+ 	// CALL needs a contiguous callee/result and argument window above live slots.
+-	base := Compiler.next_slot
+-	reserve_slots_until(base + argument_count + 1)
++	base := builder.next_slot
++	reserve_slots_until(builder, base + argument_count + 1)
+ 	if Compiler.failed { return }
+ 
+-	compile_expr(list.items[0], base)
++	compile_expr(builder, list.items[0], base)
+ 	if Compiler.failed { return }
+ 
+ 	for i := 0; i < argument_count; i += 1 {
+-		compile_expr(list.items[i + 1], base + 1 + i)
++		compile_expr(builder, list.items[i + 1], base + 1 + i)
+ 		if Compiler.failed { return }
+ 	}
+ 
+-	emit_call(base, argument_count)
+-	emit_move(dst, base)
++	emit_call(builder, base, argument_count)
++	emit_move(builder, dst, base)
+ }
+ 
+-compile_builtin_opcode :: proc(symbol: ^SymbolObject, args: []Value, dst: int) {
++compile_builtin_opcode :: proc(builder: ^CodeBuilder, symbol: ^SymbolObject, args: []Value, dst: int) {
+ 	// The caller has already resolved an unshadowed supplied builtin.
+ 	if symbol.text == "+" ||
+ 	   symbol.text == "-" ||
+@@ -1897,24 +2114,24 @@ compile_builtin_opcode :: proc(symbol: ^SymbolObject, args: []Value, dst: int) {
+ 
+ 		operand_base := dst
+ 		if operand_count > 0 {
+-			operand_base = Compiler.next_slot
+-			reserve_slots_until(operand_base + operand_count)
++			operand_base = builder.next_slot
++			reserve_slots_until(builder, operand_base + operand_count)
+ 			if Compiler.failed { return }
+ 		}
+ 
+ 		for i := 0; i < operand_count; i += 1 {
+-			compile_expr(args[i], operand_base + i)
++			compile_expr(builder, args[i], operand_base + i)
+ 			if Compiler.failed { return }
+ 		}
+ 
+ 		if symbol.text == "+" {
+-			emit_add(dst, operand_base, operand_count)
++			emit_add(builder, dst, operand_base, operand_count)
+ 		} else if symbol.text == "-" {
+-			emit_sub(dst, operand_base, operand_count)
++			emit_sub(builder, dst, operand_base, operand_count)
+ 		} else if symbol.text == "*" {
+-			emit_mul(dst, operand_base, operand_count)
++			emit_mul(builder, dst, operand_base, operand_count)
+ 		} else {
+-			emit_div(dst, operand_base, operand_count)
++			emit_div(builder, dst, operand_base, operand_count)
+ 		}
+ 		return
+ 	}
+@@ -1928,31 +2145,31 @@ compile_builtin_opcode :: proc(symbol: ^SymbolObject, args: []Value, dst: int) {
+ 	   symbol.text == ">=" {
+ 		assert(len(args) == 2, "binary builtin opcode requires two arguments")
+ 
+-		operand_base := Compiler.next_slot
+-		reserve_slots_until(operand_base + 2)
++		operand_base := builder.next_slot
++		reserve_slots_until(builder, operand_base + 2)
+ 		if Compiler.failed { return }
+ 
+-		compile_expr(args[0], operand_base)
++		compile_expr(builder, args[0], operand_base)
+ 		if Compiler.failed { return }
+ 
+-		compile_expr(args[1], operand_base + 1)
++		compile_expr(builder, args[1], operand_base + 1)
+ 		if Compiler.failed { return }
+ 
+ 		if symbol.text == "%" {
+-			emit_mod(dst, operand_base, operand_base + 1)
++			emit_mod(builder, dst, operand_base, operand_base + 1)
+ 		} else if symbol.text == "=" {
+-			emit_equal(dst, operand_base, operand_base + 1)
++			emit_equal(builder, dst, operand_base, operand_base + 1)
+ 		} else if symbol.text == "!=" {
+-			emit_equal(dst, operand_base, operand_base + 1)
+-			emit_not(dst, dst)
++			emit_equal(builder, dst, operand_base, operand_base + 1)
++			emit_not(builder, dst, dst)
+ 		} else if symbol.text == "<" {
+-			emit_less(dst, operand_base, operand_base + 1)
++			emit_less(builder, dst, operand_base, operand_base + 1)
+ 		} else if symbol.text == "<=" {
+-			emit_less_equal(dst, operand_base, operand_base + 1)
++			emit_less_equal(builder, dst, operand_base, operand_base + 1)
+ 		} else if symbol.text == ">" {
+-			emit_greater(dst, operand_base, operand_base + 1)
++			emit_greater(builder, dst, operand_base, operand_base + 1)
+ 		} else {
+-			emit_greater_equal(dst, operand_base, operand_base + 1)
++			emit_greater_equal(builder, dst, operand_base, operand_base + 1)
+ 		}
+ 		return
+ 	}
+@@ -1961,13 +2178,13 @@ compile_builtin_opcode :: proc(symbol: ^SymbolObject, args: []Value, dst: int) {
+ 	   symbol.text == "len" {
+ 		assert(len(args) == 1, "unary builtin opcode requires one argument")
+ 
+-		compile_expr(args[0], dst)
++		compile_expr(builder, args[0], dst)
+ 		if Compiler.failed { return }
+ 
+ 		if symbol.text == "not" {
+-			emit_not(dst, dst)
++			emit_not(builder, dst, dst)
+ 		} else {
+-			emit_len(dst, dst)
++			emit_len(builder, dst, dst)
+ 		}
+ 		return
+ 	}
+@@ -1980,20 +2197,20 @@ compile_builtin_opcode :: proc(symbol: ^SymbolObject, args: []Value, dst: int) {
+ 		}
+ 
+ 		value_count := len(args) - 1
+-		value_base := Compiler.next_slot
+-		reserve_slots_until(value_base + value_count)
++		value_base := builder.next_slot
++		reserve_slots_until(builder, value_base + value_count)
+ 		if Compiler.failed { return }
+ 
+-		compile_expr(args[0], dst)
++		compile_expr(builder, args[0], dst)
+ 		if Compiler.failed { return }
+ 
+ 		for i := 0; i < value_count; i += 1 {
+-			compile_expr(args[i + 1], value_base + i)
++			compile_expr(builder, args[i + 1], value_base + i)
+ 			if Compiler.failed { return }
+ 		}
+ 
+ 		for i := 0; i < value_count; i += 1 {
+-			emit_vector_push(dst, value_base + i)
++			emit_vector_push(builder, dst, value_base + i)
+ 		}
+ 		return
+ 	}
+@@ -2001,20 +2218,96 @@ compile_builtin_opcode :: proc(symbol: ^SymbolObject, args: []Value, dst: int) {
+ 	if symbol.text == "pop" {
+ 		assert(len(args) == 1, "pop opcode requires one argument")
+ 
+-		compile_expr(args[0], dst)
++		compile_expr(builder, args[0], dst)
+ 		if Compiler.failed { return }
+ 
+-		emit_vector_pop(dst, dst)
++		emit_vector_pop(builder, dst, dst)
+ 		return
+ 	}
+ 
+ 	assert(false, "compile_builtin_opcode expected opcode-backed builtin")
+ }
+ 
++compile_fn :: proc(parent: ^CodeBuilder, list: ^ListObject, dst: int) {
++	if len(list.items) < 2 {
++		compile_error("`fn` expects a parameter list")
++		return
++	}
++
++	params_object, params_is_object := list.items[1].(^Object)
++	if !params_is_object || params_object.kind != .LIST {
++		compile_error("`fn` parameters must be a list")
++		return
++	}
++
++	params := cast(^ListObject)params_object
++	if len(params.items) > int(max(u8)) {
++		compile_error("function has too many parameters")
++		return
++	}
++
++	child := begin_code(parent, len(params.items))
++
++	for i := 0; i < len(params.items); i += 1 {
++		param_object, param_is_object := params.items[i].(^Object)
++		if !param_is_object || param_object.kind != .SYMBOL {
++			compile_error("function parameter must be a name")
++			delete_code_builder(&child)
++			return
++		}
++
++		param := cast(^SymbolObject)param_object
++		if symbol_is_reserved_name(param) {
++			compile_error(fmt.tprintf("cannot use reserved name `%s` as parameter", param.text))
++			delete_code_builder(&child)
++			return
++		}
++
++		for j := 0; j < i; j += 1 {
++			previous_object := params.items[j].(^Object)
++			assert(previous_object.kind == .SYMBOL, "previous parameter was already validated")
++
++			previous := cast(^SymbolObject)previous_object
++			if previous == param {
++				compile_error(fmt.tprintf("duplicate parameter `%s`", param.text))
++				delete_code_builder(&child)
++				return
++			}
++		}
++
++		child.local_bindings[child.local_count] = LocalBinding{
++			symbol = param,
++			slot   = i,
++		}
++		child.local_count += 1
++	}
++
++	return_slot := claim_slot(&child)
++	if Compiler.failed {
++		delete_code_builder(&child)
++		return
++	}
++
++	compile_body(&child, list.items[2:], return_slot)
++	if Compiler.failed {
++		delete_code_builder(&child)
++		return
++	}
++
++	emit_return(&child, return_slot)
++
++	child_code := end_code(&child)
++
++	append(&parent.child_codes, child_code)
++	child_index := len(parent.child_codes) - 1
++
++	emit_load_function(parent, dst, child_index)
++}
++
+ // Bare heads resolve as special forms, then ordinary bindings.
+ // Direct calls to supplied arithmetic and vector builtins may use dedicated opcodes.
+ // Non-symbol heads are ordinary calls.
+-compile_list_expr :: proc(list: ^ListObject, dst: int) {
++compile_list_expr :: proc(builder: ^CodeBuilder, list: ^ListObject, dst: int) {
+ 	if len(list.items) == 0 {
+ 		compile_error("empty list is not an expression")
+ 		return
+@@ -2022,7 +2315,7 @@ compile_list_expr :: proc(list: ^ListObject, dst: int) {
+ 
+ 	head_object, head_is_object := list.items[0].(^Object)
+ 	if !head_is_object || head_object.kind != .SYMBOL {
+-		compile_ordinary_call(list, dst)
++		compile_ordinary_call(builder, list, dst)
+ 		return
+ 	}
+ 
+@@ -2033,29 +2326,28 @@ compile_list_expr :: proc(list: ^ListObject, dst: int) {
+ 		return
+ 	}
+ 	if head.text == "set" {
+-		compile_set(list, dst)
++		compile_set(builder, list, dst)
+ 		return
+ 	}
+ 	if head.text == "do" {
+-		compile_do(list, dst)
++		compile_do(builder, list, dst)
+ 		return
+ 	}
+ 	if head.text == "if" {
+-		compile_if(list, dst)
++		compile_if(builder, list, dst)
+ 		return
+ 	}
+ 	if head.text == "while" {
+-		compile_while(list, dst)
++		compile_while(builder, list, dst)
+ 		return
+ 	}
+ 	if head.text == "fn" {
+-		compile_error("`fn` is not implemented")
++		compile_fn(builder, list, dst)
+ 		return
+ 	}
+ 
+-	_, local_found := find_local(head)
+-	if local_found {
+-		compile_ordinary_call(list, dst)
++	if lexical_name_visible(builder, head) {
++		compile_ordinary_call(builder, list, dst)
+ 		return
+ 	}
+ 
+@@ -2067,7 +2359,7 @@ compile_list_expr :: proc(list: ^ListObject, dst: int) {
+ 		   head.text == "-" ||
+ 		   head.text == "*" ||
+ 		   head.text == "/" {
+-			compile_builtin_opcode(head, list.items[1:], dst)
++			compile_builtin_opcode(builder, head, list.items[1:], dst)
+ 			return
+ 		}
+ 
+@@ -2079,24 +2371,24 @@ compile_list_expr :: proc(list: ^ListObject, dst: int) {
+ 		    head.text == ">" ||
+ 		    head.text == ">=") &&
+ 		   argument_count == 2 {
+-			compile_builtin_opcode(head, list.items[1:], dst)
++			compile_builtin_opcode(builder, head, list.items[1:], dst)
+ 			return
+ 		}
+ 
+ 		if (head.text == "not" ||
+ 		    head.text == "len") &&
+ 		   argument_count == 1 {
+-			compile_builtin_opcode(head, list.items[1:], dst)
++			compile_builtin_opcode(builder, head, list.items[1:], dst)
+ 			return
+ 		}
+ 
+ 		if (head.text == "push" && argument_count >= 2) ||
+ 		   (head.text == "pop" && argument_count == 1) {
+-			compile_builtin_opcode(head, list.items[1:], dst)
++			compile_builtin_opcode(builder, head, list.items[1:], dst)
+ 			return
+ 		}
+ 
+-		compile_ordinary_call(list, dst)
++		compile_ordinary_call(builder, list, dst)
+ 		return
+ 	}
+ 
+@@ -2105,113 +2397,69 @@ compile_list_expr :: proc(list: ^ListObject, dst: int) {
+ 
+ // The caller reserves dst. Expression compilation may use higher scratch slots
+ // but restores the live slot boundary it received.
+-compile_expr :: proc(value: Value, dst: int) {
+-	slot_mark := Compiler.next_slot
++compile_expr :: proc(builder: ^CodeBuilder, value: Value, dst: int) {
++	slot_mark := builder.next_slot
+ 
+ 	if value == nil {
+-		emit_load_nil(dst)
+-		Compiler.next_slot = slot_mark
++		emit_load_nil(builder, dst)
++		builder.next_slot = slot_mark
+ 		return
+ 	}
+ 
+ 	switch v in value {
+ 	case bool:
+ 		if v {
+-			emit_load_true(dst)
++			emit_load_true(builder, dst)
+ 		} else {
+-			emit_load_false(dst)
++			emit_load_false(builder, dst)
+ 		}
+ 
+ 	case i64, f64:
+-		compile_constant(value, dst)
++		compile_constant(builder, value, dst)
+ 
+ 	case ^Object:
+ 		switch v.kind {
+ 		case .STRING:
+-			compile_constant(value, dst)
++			compile_constant(builder, value, dst)
+ 
+ 		case .SYMBOL:
+-			compile_name_expr(cast(^SymbolObject)v, dst)
++			compile_name_expr(builder, cast(^SymbolObject)v, dst)
+ 
+ 		case .LIST:
+-			compile_list_expr(cast(^ListObject)v, dst)
++			compile_list_expr(builder, cast(^ListObject)v, dst)
+ 
+ 		case .VECTOR:
+-			compile_vector_expr(cast(^VectorObject)v, dst)
++			compile_vector_expr(builder, cast(^VectorObject)v, dst)
+ 
+ 		case .MAP:
+-			compile_map_expr(cast(^MapObject)v, dst)
++			compile_map_expr(builder, cast(^MapObject)v, dst)
+ 
+-		case .NATIVE_FUNCTION:
+-			compile_error("native function object cannot appear in source")
++		case .NATIVE_FUNCTION, .FUNCTION:
++			compile_error("runtime function object cannot appear as a literal form")
+ 		}
+ 	}
+ 
+-	Compiler.next_slot = slot_mark
++	builder.next_slot = slot_mark
+ }
+ 
+-// Returns the final expression, or nil when empty or ending in a definition.
+-// Non-final expression results are discarded.
+-compile_file_forms :: proc(forms: []Value) -> int {
+-	if len(forms) == 0 {
+-		result_slot := claim_slot()
+-		if Compiler.failed { return 0 }
+-
+-		emit_load_nil(result_slot)
+-		return result_slot
+-	}
+-
+-	result_slot := 0
+-
+-	for i := 0; i < len(forms); i += 1 {
+-		form := forms[i]
+-		is_last := i + 1 == len(forms)
+-
+-		if form_is_definition(form) {
+-			compile_def(form)
+-			if Compiler.failed { return 0 }
+-
+-			if is_last {
+-				result_slot = claim_slot()
+-				if Compiler.failed { return 0 }
+-				emit_load_nil(result_slot)
+-			}
+-			continue
+-		}
+-
+-		slot_mark := Compiler.next_slot
+-		result_slot = claim_slot()
+-		if Compiler.failed { return 0 }
+-
+-		compile_expr(form, result_slot)
+-		if Compiler.failed { return 0 }
+-
+-		if !is_last {
+-			Compiler.next_slot = slot_mark
+-		}
+-	}
+-
+-	return result_slot
+-}
+-
+-compile_forms :: proc(forms: []Value) -> Code {
++compile_forms :: proc(forms: []Value) -> ^Code {
+ 	Compiler.failed = false
+-	Compiler.local_count = 0
+-	Compiler.current_scope_local_start = 0
+-	Compiler.next_slot = 0
++	root := begin_code(nil, 0)
+ 
+-	begin_code()
++	return_slot := claim_slot(&root)
++	if Compiler.failed {
++		delete_code_builder(&root)
++		return nil
++	}
+ 
+-	return_slot := compile_file_forms(forms)
++	compile_body(&root, forms, return_slot)
+ 	if Compiler.failed {
+-		delete(Active_Code.bytecode)
+-		delete(Active_Code.constants)
+-		Active_Code = Code{}
+-		return Code{}
++		delete_code_builder(&root)
++		return nil
+ 	}
+ 
+-	emit_return(return_slot)
+-	return end_code()
++	emit_return(&root, return_slot)
++	return end_code(&root)
+ }
+ 
+ 
+@@ -2653,7 +2901,7 @@ core_len :: proc(value: Value) -> Value {
+ 		return Value(i64(len((cast(^VectorObject)object).items)))
+ 	case .MAP:
+ 		return Value(i64((cast(^MapObject)object).count))
+-	case .SYMBOL, .LIST, .NATIVE_FUNCTION:
++	case .SYMBOL, .LIST, .NATIVE_FUNCTION, .FUNCTION:
+ 		runtime_error("len expects a vector, map, or string")
+ 		return Value{}
+ 	}
+@@ -2871,7 +3119,7 @@ native_function_predicate :: proc(vm: ^VM, args: []Value) -> Value {
+ 		return Value{}
+ 	}
+ 	object, is_object := args[0].(^Object)
+-	return Value(bool(is_object && object.kind == .NATIVE_FUNCTION))
++	return Value(bool(is_object && (object.kind == .NATIVE_FUNCTION || object.kind == .FUNCTION)))
+ }
+ 
+ // (len a) -> int ; length of string, vector, or map
+@@ -2919,7 +3167,7 @@ native_copy :: proc(vm: ^VM, args: []Value) -> Value {
+ 
+ 		return Value(cast(^Object)result)
+ 
+-	case .STRING, .SYMBOL, .LIST, .NATIVE_FUNCTION:
++	case .STRING, .SYMBOL, .LIST, .NATIVE_FUNCTION, .FUNCTION:
+ 		runtime_error("copy expects a vector or map")
+ 		return Value{}
+ 	}
+@@ -2955,7 +3203,7 @@ native_clear :: proc(vm: ^VM, args: []Value) -> Value {
+ 		map_object.tombstone_count = 0
+ 		return args[0]
+ 
+-	case .STRING, .SYMBOL, .LIST, .NATIVE_FUNCTION:
++	case .STRING, .SYMBOL, .LIST, .NATIVE_FUNCTION, .FUNCTION:
+ 		runtime_error("clear expects a vector or map")
+ 		return Value{}
+ 	}
+@@ -2993,7 +3241,7 @@ native_type :: proc(vm: ^VM, args: []Value) -> Value {
+ 				type_name = "vector"
+ 			case .MAP:
+ 				type_name = "map"
+-			case .NATIVE_FUNCTION:
++			case .NATIVE_FUNCTION, .FUNCTION:
+ 				type_name = "function"
+ 			case .SYMBOL:
+ 				assert(false, "symbol is not a Rite runtime value")
+@@ -3300,8 +3548,11 @@ native_write :: proc(vm: ^VM, args: []Value) -> Value {
+ 
+ make_vm :: proc() -> VM {
+ 	vm := VM{
+-		globals = make([dynamic]GlobalBinding),
+-		symbols = make([dynamic]^SymbolObject),
++		slots         = make([dynamic]Value),
++		frames        = make([dynamic]CallFrame),
++		open_upvalues = make([dynamic]^Upvalue),
++		globals       = make([dynamic]GlobalBinding),
++		symbols       = make([dynamic]^SymbolObject),
+ 	}
+ 
+ 	install_builtins(&vm)
+@@ -3353,59 +3604,166 @@ install_builtins :: proc(vm: ^VM) {
+ 
+ // VM execution ===================================================================================
+ 
+-// Executes trusted Code against the selected VM and replaces its slot window.
++ensure_slot_count :: proc(vm: ^VM, wanted: int) {
++	for len(vm.slots) < wanted {
++		append(&vm.slots, Value{})
++	}
++
++	if vm.slot_count < wanted {
++		vm.slot_count = wanted
++	}
++}
++
++find_or_create_open_upvalue :: proc(vm: ^VM, absolute_slot: int) -> ^Upvalue {
++	for upvalue in vm.open_upvalues {
++		if upvalue.slot_index == absolute_slot {
++			return upvalue
++		}
++	}
++
++	upvalue := new(Upvalue)
++	upvalue.slot_index = absolute_slot
++
++	append(&vm.open_upvalues, upvalue)
++	return upvalue
++}
++
++close_upvalues_from :: proc(vm: ^VM, absolute_start: int) {
++	for i := 0; i < len(vm.open_upvalues); {
++		upvalue := vm.open_upvalues[i]
++
++		if upvalue.slot_index >= absolute_start {
++			upvalue.closed = vm.slots[upvalue.slot_index]
++			upvalue.slot_index = -1
++			ordered_remove(&vm.open_upvalues, i)
++			continue
++		}
++
++		i += 1
++	}
++}
++
++// Executes trusted Code against the selected VM using frame-relative slot operands.
+ run_code :: proc(code: ^Code) -> Value {
+ 	vm := Active_VM
+ 
+-	// Allocate the exact entry slot window recorded during emission.
+ 	delete(vm.slots)
+-	vm.slots = make([dynamic]Value, code.frame_slot_count)
++	vm.slots = make([dynamic]Value)
++	vm.slot_count = 0
++
++	clear(&vm.frames)
++	clear(&vm.open_upvalues)
+ 
+-	ip := 0
++	ensure_slot_count(vm, code.frame_slot_count)
++
++	append(&vm.frames, CallFrame{
++		code              = code,
++		upvalues          = nil,
++		instruction_index = 0,
++		slot_base         = 0,
++		caller_slot_count = 0,
++	})
+ 
+ 	for {
+-		assert(ip < len(code.bytecode), "code ended without RETURN")
++		assert(len(vm.frames) > 0, "VM has no active frame")
++		frame := &vm.frames[len(vm.frames) - 1]
++		assert(frame.instruction_index < len(frame.code.bytecode), "code ended without RETURN")
+ 
+-		word := code.bytecode[ip]
+-		ip += 1
++		word := frame.code.bytecode[frame.instruction_index]
++		frame.instruction_index += 1
+ 
+-		// Both instruction layouts store the opcode in the same field.
+ 		op := InstABC(word).op
+ 
+ 		switch op {
+ 		case .LOAD_NIL:
+ 			inst := InstABx(word)
+-			vm.slots[int(inst.a)] = Value{}
++			vm.slots[frame.slot_base + int(inst.a)] = Value{}
+ 
+ 		case .LOAD_TRUE:
+ 			inst := InstABx(word)
+-			vm.slots[int(inst.a)] = Value(bool(true))
++			vm.slots[frame.slot_base + int(inst.a)] = Value(bool(true))
+ 
+ 		case .LOAD_FALSE:
+ 			inst := InstABx(word)
+-			vm.slots[int(inst.a)] = Value(bool(false))
++			vm.slots[frame.slot_base + int(inst.a)] = Value(bool(false))
+ 
+ 		case .LOAD_CONST:
+ 			inst := InstABx(word)
+ 			constant_index := int(inst.b)
+-			assert(constant_index < len(code.constants), "constant index out of range")
+-			vm.slots[int(inst.a)] = code.constants[constant_index]
++			assert(constant_index < len(frame.code.constants), "constant index out of range")
++			vm.slots[frame.slot_base + int(inst.a)] = frame.code.constants[constant_index]
+ 
+ 		case .MOVE:
+ 			inst := InstABC(word)
+-			vm.slots[int(inst.a)] = vm.slots[int(inst.b)]
++			vm.slots[frame.slot_base + int(inst.a)] = vm.slots[frame.slot_base + int(inst.b)]
+ 
+ 		case .GET_GLOBAL:
+ 			inst := InstABx(word)
+ 			global_index := int(inst.b)
+ 			assert(global_index < len(vm.globals), "global index out of range")
+-			vm.slots[int(inst.a)] = vm.globals[global_index].value
++			vm.slots[frame.slot_base + int(inst.a)] = vm.globals[global_index].value
++
++		case .LOAD_FUNCTION:
++			inst := InstABx(word)
++			dst := frame.slot_base + int(inst.a)
++			child_index := int(inst.b)
++
++			assert(child_index < len(frame.code.child_codes), "child code index out of range")
++
++			child_code := frame.code.child_codes[child_index]
++			function := new_function_object(child_code)
++
++			for i := 0; i < len(child_code.upvalue_descs); i += 1 {
++				desc := child_code.upvalue_descs[i]
++
++				if desc.from_parent_local {
++					absolute_slot := frame.slot_base + desc.index
++					function.upvalues[i] = find_or_create_open_upvalue(vm, absolute_slot)
++				} else {
++					assert(desc.index < len(frame.upvalues), "parent upvalue index out of range")
++					function.upvalues[i] = frame.upvalues[desc.index]
 +				}
 +			}
 +
-+			Reader.index += 1
++			vm.slots[dst] = Value(cast(^Object)function)
 +
-+			if Reader.index >= len(Reader.source) {
-+				delete(decoded)
-+				reader_error("unterminated string")
-+				return Value{}
++		case .GET_UPVALUE:
++			inst := InstABx(word)
++			dst := frame.slot_base + int(inst.a)
++			upvalue_index := int(inst.b)
++
++			assert(upvalue_index < len(frame.upvalues), "upvalue index out of range")
++
++			upvalue := frame.upvalues[upvalue_index]
++			if upvalue.slot_index >= 0 {
++				vm.slots[dst] = vm.slots[upvalue.slot_index]
++			} else {
++				vm.slots[dst] = upvalue.closed
 +			}
 +
-+			escaped := Reader.source[Reader.index]
-+			Reader.index += 1
++		case .SET_UPVALUE:
++			inst := InstABx(word)
++			src := frame.slot_base + int(inst.a)
++			upvalue_index := int(inst.b)
 +
-+			if escaped == '\n' || escaped == '\r' {
-+				delete(decoded)
-+				reader_error("unterminated string")
-+				return Value{}
++			assert(upvalue_index < len(frame.upvalues), "upvalue index out of range")
++
++			upvalue := frame.upvalues[upvalue_index]
++			if upvalue.slot_index >= 0 {
++				vm.slots[upvalue.slot_index] = vm.slots[src]
++			} else {
++				upvalue.closed = vm.slots[src]
 +			}
 +
-+			switch escaped {
-+			case 'n':
-+				append(&decoded, '\n')
-+			case 't':
-+				append(&decoded, '\t')
-+			case 'r':
-+				append(&decoded, '\r')
-+			case '\\':
-+				append(&decoded, '\\')
-+			case '"':
-+				append(&decoded, '"')
-+			case:
-+				delete(decoded)
-+				reader_error(fmt.tprintf("invalid escape sequence '\\%c'", escaped))
-+				return Value{}
-+			}
-+
-+			continue
- 		}
++		case .CLOSE_UPVALUES:
++			inst := InstABx(word)
++			absolute_start := frame.slot_base + int(inst.a)
++			close_upvalues_from(vm, absolute_start)
  
- 		if ch == '"' {
-+			if has_escapes {
-+				Reader.index += 1
-+				text := string(decoded[:])
-+				object := new_string_object(text)
-+				delete(decoded)
-+				return Value(cast(^Object)object)
+ 		case .ADD, .SUB, .MUL, .DIV:
+-			// B and C describe one contiguous variadic operand window.
+ 			inst := InstABC(word)
+-			dst := int(inst.a)
+-			first_slot := int(inst.b)
++			dst := frame.slot_base + int(inst.a)
++			first_slot := frame.slot_base + int(inst.b)
+ 			argument_count := int(inst.c)
+ 			args := vm.slots[first_slot:first_slot + argument_count]
+ 
+@@ -3430,9 +3788,9 @@ run_code :: proc(code: ^Code) -> Value {
+ 		case .MOD, .EQUAL, .LESS, .LESS_EQUAL, .GREATER, .GREATER_EQUAL:
+ 			// These binary operations share A=dst, B=lhs, C=rhs.
+ 			inst := InstABC(word)
+-			dst := int(inst.a)
+-			lhs := vm.slots[int(inst.b)]
+-			rhs := vm.slots[int(inst.c)]
++			dst := frame.slot_base + int(inst.a)
++			lhs := vm.slots[frame.slot_base + int(inst.b)]
++			rhs := vm.slots[frame.slot_base + int(inst.c)]
+ 
+ 			result: Value
+ 			#partial switch op {
+@@ -3456,8 +3814,8 @@ run_code :: proc(code: ^Code) -> Value {
+ 		case .NOT, .LEN:
+ 			// These unary operations share A=dst, B=src; LEN may fail.
+ 			inst := InstABC(word)
+-			dst := int(inst.a)
+-			src := vm.slots[int(inst.b)]
++			dst := frame.slot_base + int(inst.a)
++			src := vm.slots[frame.slot_base + int(inst.b)]
+ 
+ 			result: Value
+ 			#partial switch op {
+@@ -3471,9 +3829,8 @@ run_code :: proc(code: ^Code) -> Value {
+ 			vm.slots[dst] = result
+ 
+ 		case .CALL:
+-			// A holds the callee before the call and its result afterward.
+ 			inst := InstABC(word)
+-			base := int(inst.a)
++			base := frame.slot_base + int(inst.a)
+ 			argument_count := int(inst.b)
+ 			callee := vm.slots[base]
+ 
+@@ -3497,6 +3854,29 @@ run_code :: proc(code: ^Code) -> Value {
+ 
+ 				vm.slots[base] = result
+ 
++			case .FUNCTION:
++				function := cast(^FunctionObject)callee_object
++
++				if argument_count != function.code.param_count {
++					runtime_error("function called with wrong number of arguments")
++					return Value{}
++				}
++
++				callee_slot_base := base + 1
++				caller_slot_count := vm.slot_count
++
++				ensure_slot_count(vm, callee_slot_base + function.code.frame_slot_count)
++
++				append(&vm.frames, CallFrame{
++					code              = function.code,
++					upvalues          = function.upvalues,
++					instruction_index = 0,
++					slot_base         = callee_slot_base,
++					caller_slot_count = caller_slot_count,
++				})
++
++				continue
++
+ 			case .VECTOR:
+ 				if argument_count != 1 {
+ 					runtime_error("vector call expects one index")
+@@ -3535,7 +3915,7 @@ run_code :: proc(code: ^Code) -> Value {
+ 		case .NEW_VECTOR:
+ 			// Capacity reserves backing storage; the new vector length is zero.
+ 			inst := InstABx(word)
+-			dst := int(inst.a)
++			dst := frame.slot_base + int(inst.a)
+ 			capacity := int(inst.b)
+ 
+ 			items := make([dynamic]Value)
+@@ -3548,7 +3928,7 @@ run_code :: proc(code: ^Code) -> Value {
+ 		case .NEW_MAP:
+ 			// Capacity is a pair-count hint; map_init chooses the bucket count.
+ 			inst := InstABx(word)
+-			dst := int(inst.a)
++			dst := frame.slot_base + int(inst.a)
+ 
+ 			object := new_map_object()
+ 			map_init(object, int(inst.b))
+@@ -3557,22 +3937,22 @@ run_code :: proc(code: ^Code) -> Value {
+ 		case .VECTOR_PUSH:
+ 			// A already holds the vector and remains the result after mutation.
+ 			inst := InstABC(word)
+-			core_push(vm.slots[int(inst.a)], vm.slots[int(inst.b)])
++			core_push(vm.slots[frame.slot_base + int(inst.a)], vm.slots[frame.slot_base + int(inst.b)])
+ 			if vm.error_string != "" { return Value{} }
+ 
+ 		case .VECTOR_POP:
+ 			// Validate the pop before replacing A with the removed value.
+ 			inst := InstABC(word)
+-			result := core_pop(vm.slots[int(inst.b)])
++			result := core_pop(vm.slots[frame.slot_base + int(inst.b)])
+ 			if vm.error_string != "" { return Value{} }
+-			vm.slots[int(inst.a)] = result
++			vm.slots[frame.slot_base + int(inst.a)] = result
+ 
+ 		case .SET_INDEX:
+ 			// C remains the set-expression result; this opcode only mutates A.
+ 			inst := InstABC(word)
+-			receiver_value := vm.slots[int(inst.a)]
+-			index_value := vm.slots[int(inst.b)]
+-			new_value := vm.slots[int(inst.c)]
++			receiver_value := vm.slots[frame.slot_base + int(inst.a)]
++			index_value := vm.slots[frame.slot_base + int(inst.b)]
++			new_value := vm.slots[frame.slot_base + int(inst.c)]
+ 
+ 			receiver_object, receiver_is_object := receiver_value.(^Object)
+ 			if !receiver_is_object {
+@@ -3600,25 +3980,39 @@ run_code :: proc(code: ^Code) -> Value {
+ 				map_set(cast(^MapObject)receiver_object, index_value, new_value)
+ 				if vm.error_string != "" { return Value{} }
+ 
+-			case .STRING, .SYMBOL, .LIST, .NATIVE_FUNCTION:
++			case .STRING, .SYMBOL, .LIST, .NATIVE_FUNCTION, .FUNCTION:
+ 				runtime_error("indexed set receiver must be vector or map")
+ 				return Value{}
+ 			}
+ 
+ 		case .JUMP:
+ 			inst := InstAx(word)
+-			ip = int(inst.a)
++			frame.instruction_index = int(inst.a)
+ 
+ 		case .JUMP_IF_FALSEY:
+ 			inst := InstABx(word)
+-			cond := vm.slots[int(inst.a)]
++			cond := vm.slots[frame.slot_base + int(inst.a)]
+ 			if value_is_falsey(cond) {
+-				ip = int(inst.b)
++				frame.instruction_index = int(inst.b)
+ 			}
+ 
+ 		case .RETURN:
+ 			inst := InstABx(word)
+-			return vm.slots[int(inst.a)]
++			result := vm.slots[frame.slot_base + int(inst.a)]
++
++			close_upvalues_from(vm, frame.slot_base)
++
++			if len(vm.frames) == 1 {
++				return result
 +			}
 +
- 			text := Reader.source[start:Reader.index]
- 			Reader.index += 1
- 			return Value(cast(^Object)new_string_object(text))
- 		}
- 
-+		if has_escapes {
-+			append(&decoded, ch)
-+		}
++			return_slot := frame.slot_base - 1
++			caller_slot_count := frame.caller_slot_count
 +
- 		Reader.index += 1
- 	}
- 
-+	if has_escapes {
-+		delete(decoded)
-+	}
++			pop(&vm.frames)
 +
- 	reader_error("unterminated string")
- 	return Value{}
++			vm.slots[return_slot] = result
++			vm.slot_count = caller_slot_count
+ 
+ 		case:
+ 			assert(false, "invalid opcode")
+@@ -3640,10 +4034,9 @@ run_source :: proc(source: string) -> Value {
+ 
+ 	code := compile_forms(forms[:])
+ 	if Compiler.failed { return Value{} }
+-	defer delete(code.bytecode)
+-	defer delete(code.constants)
++	defer delete_code(code)
+ 
+-	return run_code(&code)
++	return run_code(code)
  }
-diff --git a/wisp.exe b/wisp.exe
-index 08441b9..aa4f10b 100644
-Binary files a/wisp.exe and b/wisp.exe differ
+ 
+ // Owns one read, compile, and execute operation and its diagnostic lifetime.
