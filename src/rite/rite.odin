@@ -1800,6 +1800,7 @@ find_local :: proc(builder: ^CodeBuilder, symbol: ^SymbolObject) -> (LocalBindin
 
 symbol_is_reserved_word :: proc(symbol: ^SymbolObject) -> bool {
 	return symbol.text == "def" ||
+	       symbol.text == "const" ||
 	       symbol.text == "set" ||
 	       symbol.text == "do" ||
 	       symbol.text == "if" ||
@@ -1946,115 +1947,50 @@ compile_map_expr :: proc(builder: ^CodeBuilder, map_object: ^MapObject, dst: int
 	}
 }
 
-compile_value_def :: proc(builder: ^CodeBuilder, list: ^ListObject) {
-	if len(list.items) != 3 {
-		compile_error("value `def` expects a name and value")
+compile_binding :: proc(builder: ^CodeBuilder, form: Value, mutable: bool, form_name: string) {
+	object, _ := form.(^Object)
+	list := cast(^ListObject)object
+	if len(list.items) < 2 {
+		compile_error(fmt.tprintf("`%s` expects a binding", form_name))
 		return
 	}
 
-	name_object, _ := list.items[1].(^Object)
-	name := cast(^SymbolObject)name_object
-	if symbol_is_reserved_word(name) {
-		compile_error(fmt.tprintf("cannot define reserved name `%s`", name.text))
+	binding_object, binding_is_object := list.items[1].(^Object)
+	if !binding_is_object {
+		compile_error(fmt.tprintf("`%s` binding must be a name, function signature, or vector destructuring pattern", form_name))
 		return
 	}
 
-	for i := builder.current_scope_local_start; i < builder.local_count; i += 1 {
-		if builder.local_bindings[i].symbol == name {
-			compile_error(fmt.tprintf("duplicate definition `%s` in the same scope", name.text))
-			return
-		}
-	}
-
-	binding_slot := claim_slot(builder)
-	if Compiler.failed { return }
-
-	// Ordered def: the binding is not visible while its RHS compiles.
-	compile_expr(builder, list.items[2], binding_slot)
-	if Compiler.failed { return }
-
-	binding := LocalBinding{
-		symbol  = name,
-		slot    = binding_slot,
-		mutable = true,
-	}
-
-	builder.local_bindings[builder.local_count] = binding
-	builder.local_count += 1
-
-	if builder.parent == nil {
-		append(&builder.file_bindings, binding)
-	}
-}
-
-compile_vector_destructuring_def :: proc(builder: ^CodeBuilder, list: ^ListObject, pattern: ^VectorObject) {
-	if len(list.items) != 3 {
-		compile_error("vector destructuring `def` expects a pattern and value")
-		return
-	}
-
-	count := len(pattern.items)
-	if count == 0 {
-		compile_error("vector destructuring pattern cannot be empty")
-		return
-	}
-
-	if count > int(max(u8)) {
-		compile_error("vector destructuring supports at most 255 bindings")
-		return
-	}
-
-	for i := 0; i < count; i += 1 {
-		item_object, item_is_object := pattern.items[i].(^Object)
-		if !item_is_object || item_object.kind != .SYMBOL {
-			compile_error("vector destructuring binding must be a name")
+	if binding_object.kind == .SYMBOL {
+		if len(list.items) != 3 {
+			compile_error(fmt.tprintf("value `%s` expects a name and value", form_name))
 			return
 		}
 
-		name := cast(^SymbolObject)item_object
+		name := cast(^SymbolObject)binding_object
 		if symbol_is_reserved_word(name) {
 			compile_error(fmt.tprintf("cannot define reserved name `%s`", name.text))
 			return
 		}
 
-		for j := 0; j < i; j += 1 {
-			previous_object, _ := pattern.items[j].(^Object)
-			previous := cast(^SymbolObject)previous_object
-			if previous == name {
-				compile_error(fmt.tprintf("duplicate definition `%s` in vector destructuring pattern", name.text))
-				return
-			}
-		}
-
-		for j := builder.current_scope_local_start; j < builder.local_count; j += 1 {
-			if builder.local_bindings[j].symbol == name {
+		for i := builder.current_scope_local_start; i < builder.local_count; i += 1 {
+			if builder.local_bindings[i].symbol == name {
 				compile_error(fmt.tprintf("duplicate definition `%s` in the same scope", name.text))
 				return
 			}
 		}
-	}
 
-	source_slot := claim_slot(builder)
-	if Compiler.failed { return }
+		binding_slot := claim_slot(builder)
+		if Compiler.failed { return }
 
-	// Ordered def: destructured names are not visible while RHS compiles.
-	compile_expr(builder, list.items[2], source_slot)
-	if Compiler.failed { return }
-
-	first_binding_slot := source_slot
-	reserve_slots_until(builder, first_binding_slot + count)
-	if Compiler.failed { return }
-
-	emit_unpack_vector(builder, source_slot, first_binding_slot, count)
-
-	for i := 0; i < count; i += 1 {
-		item_object, _ := pattern.items[i].(^Object)
-		name := cast(^SymbolObject)item_object
+		// Ordered binding: the name is not visible while its RHS compiles.
+		compile_expr(builder, list.items[2], binding_slot)
+		if Compiler.failed { return }
 
 		binding := LocalBinding{
 			symbol  = name,
-			slot    = first_binding_slot + i,
-			mutable = true,
+			slot    = binding_slot,
+			mutable = mutable,
 		}
 
 		builder.local_bindings[builder.local_count] = binding
@@ -2063,159 +1999,221 @@ compile_vector_destructuring_def :: proc(builder: ^CodeBuilder, list: ^ListObjec
 		if builder.parent == nil {
 			append(&builder.file_bindings, binding)
 		}
-	}
-}
-
-compile_named_fn_def :: proc(builder: ^CodeBuilder, def_list: ^ListObject, signature: ^ListObject) {
-	if len(signature.items) == 0 {
-		compile_error("function `def` signature must start with a name")
-		return
-	}
-
-	name_object, name_is_object := signature.items[0].(^Object)
-	if !name_is_object || name_object.kind != .SYMBOL {
-		compile_error("function `def` name must be a name")
-		return
-	}
-
-	name := cast(^SymbolObject)name_object
-	if symbol_is_reserved_word(name) {
-		compile_error(fmt.tprintf("cannot define reserved name `%s`", name.text))
-		return
-	}
-
-	for i := builder.current_scope_local_start; i < builder.local_count; i += 1 {
-		if builder.local_bindings[i].symbol == name {
-			compile_error(fmt.tprintf("duplicate definition `%s` in the same scope", name.text))
-			return
-		}
-	}
-
-	param_count := len(signature.items) - 1
-	if param_count > int(max(u8)) {
-		compile_error("function has too many parameters")
-		return
-	}
-
-	for i := 0; i < param_count; i += 1 {
-		param_value := signature.items[i + 1]
-
-		param_object, param_is_object := param_value.(^Object)
-		if !param_is_object || param_object.kind != .SYMBOL {
-			compile_error("function parameter must be a name")
-			return
-		}
-
-		param := cast(^SymbolObject)param_object
-		if symbol_is_reserved_word(param) {
-			compile_error(fmt.tprintf("cannot use reserved name `%s` as parameter", param.text))
-			return
-		}
-
-		if param == name {
-			compile_error(fmt.tprintf("parameter `%s` duplicates function name", param.text))
-			return
-		}
-
-		for j := 0; j < i; j += 1 {
-			previous_object, _ := signature.items[j + 1].(^Object)
-			previous := cast(^SymbolObject)previous_object
-			if previous == param {
-				compile_error(fmt.tprintf("duplicate parameter `%s`", param.text))
-				return
-			}
-		}
-	}
-
-	binding_slot := claim_slot(builder)
-	if Compiler.failed { return }
-
-	// Recursive named def: publish the binding before compiling the body.
-	binding := LocalBinding{
-		symbol  = name,
-		slot    = binding_slot,
-		mutable = true,
-	}
-
-	builder.local_bindings[builder.local_count] = binding
-	builder.local_count += 1
-
-	if builder.parent == nil {
-		append(&builder.file_bindings, binding)
-	}
-
-	child := begin_code(builder, param_count, builder.source_name)
-
-	for i := 0; i < param_count; i += 1 {
-		param_object, _ := signature.items[i + 1].(^Object)
-		param := cast(^SymbolObject)param_object
-
-		child.local_bindings[child.local_count] = LocalBinding{
-			symbol  = param,
-			slot    = i,
-			mutable = true,
-		}
-		child.local_count += 1
-	}
-
-	return_slot := claim_slot(&child)
-	if Compiler.failed {
-		delete_code_builder(&child)
-		return
-	}
-
-	compile_body(&child, def_list.items[2:], return_slot)
-	if Compiler.failed {
-		delete_code_builder(&child)
-		return
-	}
-
-	emit_return(&child, return_slot)
-
-	child_code := end_code(&child)
-
-	if len(builder.child_codes) > int(max(u16)) {
-		compile_error("too many function literals in one body")
-		delete_code(child_code)
-		return
-	}
-
-	append(&builder.child_codes, child_code)
-	child_index := len(builder.child_codes) - 1
-
-	emit_load_function(builder, binding_slot, child_index)
-}
-
-compile_def :: proc(builder: ^CodeBuilder, form: Value) {
-	object, _ := form.(^Object)
-	list := cast(^ListObject)object
-	if len(list.items) < 2 {
-		compile_error("`def` expects a binding")
-		return
-	}
-
-	binding_object, binding_is_object := list.items[1].(^Object)
-	if !binding_is_object {
-		compile_error("`def` binding must be a name, function signature, or vector destructuring pattern")
-		return
-	}
-
-	if binding_object.kind == .SYMBOL {
-		compile_value_def(builder, list)
-		return
-	}
-
-	if binding_object.kind == .LIST {
-		compile_named_fn_def(builder, list, cast(^ListObject)binding_object)
 		return
 	}
 
 	if binding_object.kind == .VECTOR {
-		compile_vector_destructuring_def(builder, list, cast(^VectorObject)binding_object)
+		if len(list.items) != 3 {
+			compile_error(fmt.tprintf("vector destructuring `%s` expects a pattern and value", form_name))
+			return
+		}
+
+		pattern := cast(^VectorObject)binding_object
+		count := len(pattern.items)
+		if count == 0 {
+			compile_error("vector destructuring pattern cannot be empty")
+			return
+		}
+
+		if count > int(max(u8)) {
+			compile_error("vector destructuring supports at most 255 bindings")
+			return
+		}
+
+		for i := 0; i < count; i += 1 {
+			item_object, item_is_object := pattern.items[i].(^Object)
+			if !item_is_object || item_object.kind != .SYMBOL {
+				compile_error("vector destructuring binding must be a name")
+				return
+			}
+
+			name := cast(^SymbolObject)item_object
+			if symbol_is_reserved_word(name) {
+				compile_error(fmt.tprintf("cannot define reserved name `%s`", name.text))
+				return
+			}
+
+			for j := 0; j < i; j += 1 {
+				previous_object, _ := pattern.items[j].(^Object)
+				previous := cast(^SymbolObject)previous_object
+				if previous == name {
+					compile_error(fmt.tprintf("duplicate definition `%s` in vector destructuring pattern", name.text))
+					return
+				}
+			}
+
+			for j := builder.current_scope_local_start; j < builder.local_count; j += 1 {
+				if builder.local_bindings[j].symbol == name {
+					compile_error(fmt.tprintf("duplicate definition `%s` in the same scope", name.text))
+					return
+				}
+			}
+		}
+
+		source_slot := claim_slot(builder)
+		if Compiler.failed { return }
+
+		// Ordered binding: destructured names are not visible while RHS compiles.
+		compile_expr(builder, list.items[2], source_slot)
+		if Compiler.failed { return }
+
+		first_binding_slot := source_slot
+		reserve_slots_until(builder, first_binding_slot + count)
+		if Compiler.failed { return }
+
+		emit_unpack_vector(builder, source_slot, first_binding_slot, count)
+
+		for i := 0; i < count; i += 1 {
+			item_object, _ := pattern.items[i].(^Object)
+			name := cast(^SymbolObject)item_object
+
+			binding := LocalBinding{
+				symbol  = name,
+				slot    = first_binding_slot + i,
+				mutable = mutable,
+			}
+
+			builder.local_bindings[builder.local_count] = binding
+			builder.local_count += 1
+
+			if builder.parent == nil {
+				append(&builder.file_bindings, binding)
+			}
+		}
 		return
 	}
 
-	compile_error("`def` binding must be a name, function signature, or vector destructuring pattern")
+	if binding_object.kind == .LIST {
+		signature := cast(^ListObject)binding_object
+		if len(signature.items) == 0 {
+			compile_error(fmt.tprintf("function `%s` signature must start with a name", form_name))
+			return
+		}
+
+		name_object, name_is_object := signature.items[0].(^Object)
+		if !name_is_object || name_object.kind != .SYMBOL {
+			compile_error(fmt.tprintf("function `%s` name must be a name", form_name))
+			return
+		}
+
+		name := cast(^SymbolObject)name_object
+		if symbol_is_reserved_word(name) {
+			compile_error(fmt.tprintf("cannot define reserved name `%s`", name.text))
+			return
+		}
+
+		for i := builder.current_scope_local_start; i < builder.local_count; i += 1 {
+			if builder.local_bindings[i].symbol == name {
+				compile_error(fmt.tprintf("duplicate definition `%s` in the same scope", name.text))
+				return
+			}
+		}
+
+		param_count := len(signature.items) - 1
+		if param_count > int(max(u8)) {
+			compile_error("function has too many parameters")
+			return
+		}
+
+		for i := 0; i < param_count; i += 1 {
+			param_value := signature.items[i + 1]
+
+			param_object, param_is_object := param_value.(^Object)
+			if !param_is_object || param_object.kind != .SYMBOL {
+				compile_error("function parameter must be a name")
+				return
+			}
+
+			param := cast(^SymbolObject)param_object
+			if symbol_is_reserved_word(param) {
+				compile_error(fmt.tprintf("cannot use reserved name `%s` as parameter", param.text))
+				return
+			}
+
+			if param == name {
+				compile_error(fmt.tprintf("parameter `%s` duplicates function name", param.text))
+				return
+			}
+
+			for j := 0; j < i; j += 1 {
+				previous_object, _ := signature.items[j + 1].(^Object)
+				previous := cast(^SymbolObject)previous_object
+				if previous == param {
+					compile_error(fmt.tprintf("duplicate parameter `%s`", param.text))
+					return
+				}
+			}
+		}
+
+		binding_slot := claim_slot(builder)
+		if Compiler.failed { return }
+
+		// Recursive named binding: publish the name before compiling the body.
+		binding := LocalBinding{
+			symbol  = name,
+			slot    = binding_slot,
+			mutable = mutable,
+		}
+
+		builder.local_bindings[builder.local_count] = binding
+		builder.local_count += 1
+
+		if builder.parent == nil {
+			append(&builder.file_bindings, binding)
+		}
+
+		child := begin_code(builder, param_count, builder.source_name)
+
+		for i := 0; i < param_count; i += 1 {
+			param_object, _ := signature.items[i + 1].(^Object)
+			param := cast(^SymbolObject)param_object
+
+			child.local_bindings[child.local_count] = LocalBinding{
+				symbol  = param,
+				slot    = i,
+				mutable = true,
+			}
+			child.local_count += 1
+		}
+
+		return_slot := claim_slot(&child)
+		if Compiler.failed {
+			delete_code_builder(&child)
+			return
+		}
+
+		compile_body(&child, list.items[2:], return_slot)
+		if Compiler.failed {
+			delete_code_builder(&child)
+			return
+		}
+
+		emit_return(&child, return_slot)
+
+		child_code := end_code(&child)
+
+		if len(builder.child_codes) > int(max(u16)) {
+			compile_error("too many function literals in one body")
+			delete_code(child_code)
+			return
+		}
+
+		append(&builder.child_codes, child_code)
+		child_index := len(builder.child_codes) - 1
+
+		emit_load_function(builder, binding_slot, child_index)
+		return
+	}
+
+	compile_error(fmt.tprintf("`%s` binding must be a name, function signature, or vector destructuring pattern", form_name))
+}
+
+compile_def :: proc(builder: ^CodeBuilder, form: Value) {
+	compile_binding(builder, form, true, "def")
+}
+
+compile_const :: proc(builder: ^CodeBuilder, form: Value) {
+	compile_binding(builder, form, false, "const")
 }
 
 compile_import :: proc(builder: ^CodeBuilder, list: ^ListObject) {
@@ -2358,6 +2356,11 @@ compile_body :: proc(builder: ^CodeBuilder, forms: []Value, dst: int) {
 						if Compiler.failed { return }
 						continue
 					}
+					if head.text == "const" {
+						compile_const(builder, form)
+						if Compiler.failed { return }
+						continue
+					}
 				}
 			}
 		}
@@ -2416,6 +2419,11 @@ compile_root_forms :: proc(builder: ^CodeBuilder, forms: []Value, dst: int) {
 
 					if head.text == "def" {
 						compile_def(builder, form)
+						if Compiler.failed { return }
+						continue
+					}
+					if head.text == "const" {
+						compile_const(builder, form)
 						if Compiler.failed { return }
 						continue
 					}
@@ -2865,6 +2873,10 @@ compile_list_expr :: proc(builder: ^CodeBuilder, list: ^ListObject, dst: int) {
 
 	if head.text == "def" {
 		compile_error("`def` is not valid in expression position")
+		return
+	}
+	if head.text == "const" {
+		compile_error("`const` is not valid in expression position")
 		return
 	}
 	if head.text == "import" {

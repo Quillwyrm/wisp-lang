@@ -1446,5 +1446,3 @@ install_builtins :: proc(vm: ^VM) {
 	bind_native_builtin(vm, "print", native_print)
 	bind_native_builtin(vm, "write", native_write)
 }
-
-
