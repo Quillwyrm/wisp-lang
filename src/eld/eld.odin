@@ -793,6 +793,83 @@ skip_trivia :: proc() {
 
 // Reader scans ===================================================================================
 
+number_from_text :: proc(text: string, report_reader_errors: bool) -> (Value, bool) {
+	if len(text) == 0 {
+		if report_reader_errors { reader_error("invalid number literal") }
+		return Value{}, false
+	}
+
+	number_index := 0
+	is_negative := false
+
+	if text[number_index] == '-' {
+		is_negative = true
+		number_index += 1
+	}
+
+	// Scan decimal digits on either side of an optional decimal point.
+	digit_count := 0
+	for number_index < len(text) && is_digit(text[number_index]) {
+		digit_count += 1
+		number_index += 1
+	}
+
+	is_float := number_index < len(text) && text[number_index] == '.'
+	if is_float {
+		number_index += 1
+
+		for number_index < len(text) && is_digit(text[number_index]) {
+			digit_count += 1
+			number_index += 1
+		}
+	}
+
+	// Valid numbers contain a digit and consume the entire text.
+	if digit_count == 0 || number_index != len(text) {
+		if report_reader_errors { reader_error("invalid number literal") }
+		return Value{}, false
+	}
+
+	// Odin converts the value only after Eld accepts its spelling.
+	if is_float {
+		float_value, float_ok := strconv.parse_f64(text)
+		if !float_ok {
+			if report_reader_errors { reader_error("float literal out of range") }
+			return Value{}, false
+		}
+
+		return Value(float_value), true
+	}
+
+	// Unsigned magnitude handles the extra negative i64 value without overflow.
+	magnitude_limit := u64(max(i64))
+	if is_negative {
+		magnitude_limit += 1
+	}
+
+	magnitude: u64
+	digit_index := 1 if is_negative else 0
+
+	for digit_index < len(text) {
+		digit := u64(text[digit_index] - '0')
+
+		if magnitude > (magnitude_limit - digit) / 10 {
+			if report_reader_errors { reader_error("integer literal out of range") }
+			return Value{}, false
+		}
+
+		magnitude = magnitude * 10 + digit
+		digit_index += 1
+	}
+
+	if is_negative {
+		if magnitude == magnitude_limit { return Value(min(i64)), true }
+		return Value(-i64(magnitude)), true
+	}
+
+	return Value(i64(magnitude)), true
+}
+
 read_atom :: proc() -> Value {
 	// The caller positions Reader.index at the first byte of an atom.
 	token_start := Reader.index
@@ -816,75 +893,9 @@ read_atom :: proc() -> Value {
 
 	// Malformed numeric-looking atoms are errors; other atoms become symbols.
 	if looks_numeric {
-		number_index := 0
-		is_negative := false
-
-		if text[number_index] == '-' {
-			is_negative = true
-			number_index += 1
-		}
-
-		// Scan decimal digits on either side of an optional decimal point.
-		digit_count := 0
-		for number_index < len(text) && is_digit(text[number_index]) {
-			digit_count += 1
-			number_index += 1
-		}
-
-		is_float := number_index < len(text) && text[number_index] == '.'
-		if is_float {
-			number_index += 1
-
-			for number_index < len(text) && is_digit(text[number_index]) {
-				digit_count += 1
-				number_index += 1
-			}
-		}
-
-		// Valid numbers contain a digit and consume the entire atom.
-		if digit_count == 0 || number_index != len(text) {
-			reader_error("invalid number literal")
-			return Value{}
-		}
-
-		// Odin converts the value only after Eld accepts its spelling.
-		if is_float {
-			float_value, float_ok := strconv.parse_f64(text)
-			if !float_ok {
-				reader_error("float literal out of range")
-				return Value{}
-			}
-
-			return Value(float_value)
-		}
-
-		// Unsigned magnitude handles the extra negative i64 value without overflow.
-		magnitude_limit := u64(max(i64))
-		if is_negative {
-			magnitude_limit += 1
-		}
-
-		magnitude: u64
-		digit_index := 1 if is_negative else 0
-
-		for digit_index < len(text) {
-			digit := u64(text[digit_index] - '0')
-
-			if magnitude > (magnitude_limit - digit) / 10 {
-				reader_error("integer literal out of range")
-				return Value{}
-			}
-
-			magnitude = magnitude * 10 + digit
-			digit_index += 1
-		}
-
-		if is_negative {
-			if magnitude == magnitude_limit { return Value(min(i64)) }
-			return Value(-i64(magnitude))
-		}
-
-		return Value(i64(magnitude))
+		number, number_ok := number_from_text(text, true)
+		if !number_ok { return Value{} }
+		return number
 	}
 
 	return Value(cast(^Object)intern_symbol(Active_VM, text))

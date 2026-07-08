@@ -706,15 +706,43 @@ native_bool_predicate :: proc(vm: ^VM, args: []Value) -> Value {
 	return Value(bool(is_bool))
 }
 
-// (num? value) bool; true if value is int or float.
+// (number? value) bool; true if value is int or float.
 native_number_predicate :: proc(vm: ^VM, args: []Value) -> Value {
 	if len(args) != 1 {
-		runtime_error("num? expects one argument")
+		runtime_error("number? expects one argument")
 		return Value{}
 	}
 	_, is_int := args[0].(i64)
 	_, is_float := args[0].(f64)
 	return Value(bool(is_int || is_float))
+}
+
+// (number value) number|nil; Parse or pass through an Eld number.
+native_number :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) != 1 {
+		runtime_error("number expects one argument")
+		return Value{}
+	}
+
+	value := args[0]
+	if value == nil { return Value{} }
+
+	switch v in value {
+	case i64, f64:
+		return value
+
+	case bool:
+		return Value{}
+
+	case ^Object:
+		if v.kind == .STRING {
+			text := strings.trim_space((cast(^StringObject)v).text)
+			number, ok := number_from_text(text, false)
+			if ok { return number }
+		}
+	}
+
+	return Value{}
 }
 
 // (int? value) bool; true if value is int.
@@ -2183,7 +2211,8 @@ install_builtins :: proc(vm: ^VM) {
 	bind_native_builtin(vm, "not", native_not)
 	bind_native_builtin(vm, "nil?", native_nil_predicate)
 	bind_native_builtin(vm, "bool?", native_bool_predicate)
-	bind_native_builtin(vm, "num?", native_number_predicate)
+	bind_native_builtin(vm, "number?", native_number_predicate)
+	bind_native_builtin(vm, "number", native_number)
 	bind_native_builtin(vm, "int?", native_int_predicate)
 	bind_native_builtin(vm, "float?", native_float_predicate)
 	bind_native_builtin(vm, "str?", native_string_predicate)
