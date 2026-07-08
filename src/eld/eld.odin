@@ -964,7 +964,7 @@ read_string :: proc() -> Value {
 				append(&decoded, '"')
 			case:
 				delete(decoded)
-				reader_error(fmt.tprintf("invalid escape sequence '\\%c'.", escaped))
+				reader_error(fmt.tprintf("invalid escape sequence `\\%c`.", escaped))
 				return Value{}
 			}
 
@@ -1746,7 +1746,7 @@ intern_constant :: proc(builder: ^CodeBuilder, value: Value) -> int {
 		entry := builder.const_cache[slot]
 		if entry.index < 0 {
 			if len(builder.constants) > int(max(u16)) {
-				compile_error("code uses too many constants.")
+				compile_error("a body has too many constants.")
 				return 0
 			}
 
@@ -2150,7 +2150,7 @@ patch_jump_target :: proc(builder: ^CodeBuilder, jump_index, target_index: int) 
 // Claims one frame slot above every value and binding that is currently live.
 claim_slot :: proc(builder: ^CodeBuilder) -> int {
 	if builder.next_slot >= MAX_FRAME_SLOTS {
-		compile_error("body uses too many local bindings or temporary values.")
+		compile_error("a body uses too many local bindings or temporary values.")
 		return 0
 	}
 
@@ -2162,7 +2162,7 @@ claim_slot :: proc(builder: ^CodeBuilder) -> int {
 // Reserves a contiguous slot range ending immediately before slot_after_last.
 reserve_slots_until :: proc(builder: ^CodeBuilder, slot_after_last: int) {
 	if slot_after_last > MAX_FRAME_SLOTS {
-		compile_error("body uses too many local bindings or temporary values.")
+		compile_error("a body uses too many local bindings or temporary values.")
 		return
 	}
 
@@ -2682,7 +2682,7 @@ compile_def_or_var :: proc(builder: ^CodeBuilder, form: Value, mutable: bool) {
 		child_code := end_code(&child)
 
 		if len(builder.child_codes) > int(max(u16)) {
-			compile_error("body contains too many function literals.")
+			compile_error("a body contains too many `fn` forms.")
 			delete_code(child_code)
 			return
 		}
@@ -2695,7 +2695,7 @@ compile_def_or_var :: proc(builder: ^CodeBuilder, form: Value, mutable: bool) {
 	}
 
 	if (len(list.items) - 1) % 2 != 0 {
-		compile_error(fmt.tprintf("`%s` expects binding target/expression pairs.\nusage: (%s target expr target expr ...)", form_name, form_name))
+		compile_error(fmt.tprintf("`%s` expects binding target/expression pairs.\nusage: (%s target expr target expr...)", form_name, form_name))
 		return
 	}
 
@@ -3629,14 +3629,9 @@ compile_set :: proc(builder: ^CodeBuilder, list: ^ListObject, dst: int, keep_res
 			return
 		}
 
-		builtin_index, builtin_found := find_builtin(Active_VM, symbol)
+		_, builtin_found := find_builtin(Active_VM, symbol)
 		if builtin_found {
-			if !Active_VM.builtins[builtin_index].mutable {
-				compile_error(fmt.tprintf("cannot mutate immutable binding `%s`.", symbol.text))
-				return
-			}
-
-			compile_error("mutating built-in bindings is not implemented.")
+			compile_error(fmt.tprintf("supplied binding `%s` is immutable.", symbol.text))
 			return
 		}
 
@@ -3992,7 +3987,7 @@ compile_fn :: proc(parent: ^CodeBuilder, list: ^ListObject, dst: int) {
 	child_code := end_code(&child)
 
 	if len(parent.child_codes) > int(max(u16)) {
-		compile_error("body contains too many function literals.")
+		compile_error("a body contains too many `fn` forms.")
 		delete_code(child_code)
 		return
 	}

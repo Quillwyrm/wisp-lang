@@ -16,7 +16,7 @@ read error: unterminated string.
 
 read error: unterminated string.
 
-read error: invalid escape sequence '\%c'.
+read error: invalid escape sequence `\%c`.
 
 read error: unterminated string.
 
@@ -50,11 +50,11 @@ compile error: module `%s` not found.
 
 compile error: could not read module `%s`.
 
-compile error: body uses too many local bindings or temporary values.
+compile error: a body has too many constants.
 
-compile error: body uses too many local bindings or temporary values.
+compile error: a body uses too many local bindings or temporary values.
 
-compile error: code uses too many constants.
+compile error: a body uses too many local bindings or temporary values.
 
 compile error: internal compiler limit exceeded for built-in bindings.
 
@@ -108,10 +108,10 @@ compile error: parameter `%s` duplicates the function binding symbol.
 
 compile error: duplicate parameter `%s`.
 
-compile error: body contains too many function literals.
+compile error: a body contains too many `fn` forms.
 
 compile error: `%s` expects binding target/expression pairs.
-usage: (%s target expr target expr ...)
+usage: (%s target expr target expr...)
 
 compile error: `import` expects a path, or namespace and path.
 usage:
@@ -191,9 +191,7 @@ compile error: cannot mutate immutable binding `%s`.
 
 compile error: cannot mutate immutable binding `%s`.
 
-compile error: cannot mutate immutable binding `%s`.
-
-compile error: mutating built-in bindings is not implemented.
+compile error: supplied binding `%s` is immutable.
 
 compile error: cannot assign to symbol `%s`; no visible binding.
 
@@ -235,7 +233,7 @@ compile error: cannot use reserved symbol `%s` as parameter.
 
 compile error: duplicate parameter `%s`.
 
-compile error: body contains too many function literals.
+compile error: a body contains too many `fn` forms.
 
 compile error: empty list is not an expression.
 
