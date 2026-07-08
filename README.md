@@ -1,4 +1,4 @@
-# Eld
+# (eld)
 A nimble, dynamic, embeddable Lisp, written in Odin.
 
 ```clojure
