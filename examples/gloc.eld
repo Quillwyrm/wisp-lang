@@ -1,10 +1,8 @@
 ; gloc - grouped lines of code.
-;
 ; Counts non-blank, non-comment lines by file extension.
 ; Comment lines start with ;, //, --, or # after trimming.
 ;
 ; Usage:
-;
 ;   eld examples/gloc.eld [path]
 
 (import "fs")
@@ -65,15 +63,11 @@
 
 (def (count-text text)
   (def lines (str/split text "\n"))
-  (var
-    i     0
-    count 0)
+  (var count 0)
 
-  (while (< i (len lines))
-    (if (not (comment-line? (idx lines i)))
-      (set count (+ count 1)))
-
-    (set i (+ i 1)))
+  (each line lines
+    (if (not (comment-line? line))
+      (set count (+ count 1))))
 
   count)
 
@@ -131,11 +125,8 @@
 
     :else
       (do
-        (var i 0)
-
-        (while (< i (len names))
+        (each name names
           (def
-            name (idx names i)
             full (path/join dir name))
 
           (cond
@@ -144,25 +135,18 @@
                 (walk full))
 
             (fs/file? full)
-              (count-file full))
-
-          (set i (+ i 1))))))
+              (count-file full))))))
 
 (def (print-stats)
   (print "gloc:" root)
 
-  (def exts (keys stats))
   (var
     files-width (len "files")
     ext-width   (len "ext")
     lines-width (len "lines"))
 
-  (var i 0)
-  (while (< i (len exts))
+  (each [ext {:files files :lines lines}] stats
     (def
-      ext (idx exts i)
-      {:files files
-       :lines lines} (key stats ext)
       files-text (str files)
       lines-text (str lines))
 
@@ -173,29 +157,18 @@
       (set ext-width (len ext)))
 
     (if (> (len lines-text) lines-width)
-      (set lines-width (len lines-text)))
-
-    (set i (+ i 1)))
+      (set lines-width (len lines-text))))
 
   (write
     (pad-left "files" files-width) "  "
     (pad-right "ext" ext-width)    "  "
     (pad-left "lines" lines-width) "\n")
 
-  (set i 0)
-
-  (while (< i (len exts))
-    (def
-      ext (idx exts i)
-      {:files files
-       :lines lines} (key stats ext))
-
+  (each [ext {:files files :lines lines}] stats
     (write
       (pad-left files files-width) "  "
       (pad-right ext ext-width)    "  "
-      (pad-left lines lines-width) "\n")
-
-    (set i (+ i 1)))
+      (pad-left lines lines-width) "\n"))
 
   (print)
   (print "total" total-files "files" total-lines "lines"))

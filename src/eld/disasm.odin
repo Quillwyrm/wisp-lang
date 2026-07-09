@@ -259,6 +259,22 @@ disasm_append_code :: proc(parts: ^[dynamic]string, code: ^Code) {
 			comment := disasm_value_text(code.constants[int(inst.b)])
 			disasm_append_inst(parts, ip, "MAP_SET_CONST", fmt.tprintf("R%d, C%d, R%d", inst.a, inst.b, inst.c), comment)
 
+		case .EACH_INIT:
+			inst := InstABC(word)
+			map_target_ok := "false"
+			if inst.c != 0 {
+				map_target_ok = "true"
+			}
+			disasm_append_inst(parts, ip, "EACH_INIT", fmt.tprintf("R%d, R%d, %s", inst.a, inst.b, map_target_ok), "")
+
+		case .EACH_NEXT:
+			inst := InstABC(word)
+			disasm_append_inst(parts, ip, "EACH_NEXT", fmt.tprintf("R%d, R%d", inst.a, inst.b), "")
+
+		case .EACH_END:
+			inst := InstABC(word)
+			disasm_append_inst(parts, ip, "EACH_END", fmt.tprintf("R%d, R%d", inst.a, inst.b), "")
+
 		case .RETURN:
 			inst := InstABx(word)
 			disasm_append_inst(parts, ip, "RETURN", fmt.tprintf("R%d", inst.a), "")

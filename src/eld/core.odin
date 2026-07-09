@@ -879,6 +879,8 @@ native_clear :: proc(vm: ^VM, args: []Value) -> Value {
 
 	case .MAP:
 		map_object := cast(^MapObject)object
+
+		// Direct map each scans the existing bucket array, so clear maps in place.
 		for i := 0; i < len(map_object.entries); i += 1 {
 			map_object.entries[i] = MapEntry{}
 		}

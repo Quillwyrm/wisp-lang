@@ -65,6 +65,8 @@ MapObject :: struct {
 	entries:         [dynamic]MapEntry,
 	count:           int,
 	tombstone_count: int,
+
+	active_iteration_count: int,
 }
 
 // The zero value of this union represents Eld nil.
@@ -136,6 +138,9 @@ Opcode :: enum u8 {
 	MAP_GET_CONST, // ABC: A=dst, B=map, C=constant key
 	MAP_SET,       // ABC: A=map, B=key, C=value -> expression result remains in C
 	MAP_SET_CONST, // ABC: A=map, B=constant key, C=value -> expression result remains in C
+	EACH_INIT,     // ABC: A=state base, B=collection, C=map target ok
+	EACH_NEXT,     // ABC: A=state base, B=collection
+	EACH_END,      // ABC: A=state base, B=collection
 
 	RETURN, // ABx: A=src
 
@@ -266,6 +271,14 @@ LocalBinding :: struct {
 	mutable: bool,
 }
 
+ActiveLoop :: struct {
+	// First break jump fixup owned by this loop.
+	break_base: int,
+
+	// First slot to close when break exits this loop body.
+	close_slot: int,
+}
+
 ConstCacheEntry :: struct {
 	hash:  u64,
 	index: int,
@@ -289,6 +302,9 @@ CodeBuilder :: struct {
 
 	upvalue_descs:   [dynamic]UpvalueDesc,
 	upvalue_symbols: [dynamic]^SymbolObject,
+
+	active_loops:       [dynamic]ActiveLoop,
+	break_jump_fixups:  [dynamic]int,
 
 	file_bindings: [dynamic]LocalBinding,
 	exports:       [dynamic]LocalBinding,
@@ -620,6 +636,8 @@ map_get :: proc(map_object: ^MapObject, key: Value) -> Value {
 	return map_object.entries[index].value
 }
 
+// map_set is the insertion/update/delete boundary for maps.
+// Live map each allows updates and deletes, but forbids adding new keys.
 map_set :: proc(map_object: ^MapObject, key, value: Value) {
 	key_object, key_is_object := key.(^Object)
 	if key_is_object && key_object.kind == .STRING {
@@ -646,17 +664,25 @@ map_set :: proc(map_object: ^MapObject, key, value: Value) {
 			return
 		}
 
-		if len(map_object.entries) == 0 {
-			map_init(map_object, 4)
+		index := 0
+		found := false
+		if len(map_object.entries) != 0 {
+			index, found = map_find_slot_string(map_object, key_string, key_hash)
+			if found {
+				map_object.entries[index].value = value
+				return
+			}
 		}
 
-		index, found := map_find_slot_string(map_object, key_string, key_hash)
-		if found {
-			map_object.entries[index].value = value
+		if map_object.active_iteration_count > 0 {
+			runtime_error("cannot add key to map during active `each`.")
 			return
 		}
 
-		if (map_object.count + map_object.tombstone_count + 1) * 4 >= len(map_object.entries) * 3 {
+		if len(map_object.entries) == 0 {
+			map_init(map_object, 4)
+			index, found = map_find_slot_string(map_object, key_string, key_hash)
+		} else if (map_object.count + map_object.tombstone_count + 1) * 4 >= len(map_object.entries) * 3 {
 			map_grow(map_object)
 			index, found = map_find_slot_string(map_object, key_string, key_hash)
 		}
@@ -697,17 +723,25 @@ map_set :: proc(map_object: ^MapObject, key, value: Value) {
 		return
 	}
 
-	if len(map_object.entries) == 0 {
-		map_init(map_object, 4)
+	index := 0
+	found := false
+	if len(map_object.entries) != 0 {
+		index, found = map_find_slot(map_object, key, key_hash)
+		if found {
+			map_object.entries[index].value = value
+			return
+		}
 	}
 
-	index, found := map_find_slot(map_object, key, key_hash)
-	if found {
-		map_object.entries[index].value = value
+	if map_object.active_iteration_count > 0 {
+		runtime_error("cannot add key to map during active `each`.")
 		return
 	}
 
-	if (map_object.count + map_object.tombstone_count + 1) * 4 >= len(map_object.entries) * 3 {
+	if len(map_object.entries) == 0 {
+		map_init(map_object, 4)
+		index, found = map_find_slot(map_object, key, key_hash)
+	} else if (map_object.count + map_object.tombstone_count + 1) * 4 >= len(map_object.entries) * 3 {
 		map_grow(map_object)
 		index, found = map_find_slot(map_object, key, key_hash)
 	}
@@ -1591,6 +1625,9 @@ begin_code :: proc(parent: ^CodeBuilder, param_count: int, source_name: string) 
 		upvalue_descs   = make([dynamic]UpvalueDesc),
 		upvalue_symbols = make([dynamic]^SymbolObject),
 
+		active_loops      = make([dynamic]ActiveLoop),
+		break_jump_fixups = make([dynamic]int),
+
 		file_bindings = make([dynamic]LocalBinding),
 		exports       = make([dynamic]LocalBinding),
 
@@ -1621,6 +1658,8 @@ end_code :: proc(builder: ^CodeBuilder) -> ^Code {
 	delete(builder.child_codes)
 	delete(builder.upvalue_descs)
 	delete(builder.upvalue_symbols)
+	delete(builder.active_loops)
+	delete(builder.break_jump_fixups)
 	delete(builder.file_bindings)
 	delete(builder.exports)
 
@@ -1661,6 +1700,8 @@ delete_code_builder :: proc(builder: ^CodeBuilder) {
 	delete(builder.child_codes)
 	delete(builder.upvalue_descs)
 	delete(builder.upvalue_symbols)
+	delete(builder.active_loops)
+	delete(builder.break_jump_fixups)
 	delete(builder.file_bindings)
 	delete(builder.exports)
 }
@@ -2052,6 +2093,43 @@ emit_map_set_const :: proc(builder: ^CodeBuilder, map_slot, constant_index, valu
 	emit_ABC(builder, .MAP_SET_CONST, map_slot, constant_index, value_slot)
 }
 
+// EACH opcodes use a fixed state slot block:
+// base+0 kind: false = vector, true = map
+// base+1 cursor: vector index or map bucket index
+// base+2 limit: captured vector length or map bucket count
+// base+3 present: bool result from EACH_NEXT
+// base+4 item: vector item
+// base+5 key: map entry key
+// base+6 value: map entry value
+EACH_KIND_SLOT         :: 0
+EACH_CURSOR_SLOT       :: 1
+EACH_LIMIT_SLOT        :: 2
+EACH_PRESENT_SLOT      :: 3
+EACH_ITEM_SLOT         :: 4
+EACH_KEY_SLOT          :: 5
+EACH_VALUE_SLOT        :: 6
+EACH_STATE_SLOT_COUNT  :: 7
+
+emit_each_init :: proc(builder: ^CodeBuilder, state_base, collection_slot: int, map_target_ok: bool) {
+	flag := 0
+	if map_target_ok {
+		flag = 1
+	}
+
+	record_slots(builder, state_base, state_base + EACH_STATE_SLOT_COUNT - 1, collection_slot)
+	emit_ABC(builder, .EACH_INIT, state_base, collection_slot, flag)
+}
+
+emit_each_next :: proc(builder: ^CodeBuilder, state_base, collection_slot: int) {
+	record_slots(builder, state_base, state_base + EACH_STATE_SLOT_COUNT - 1, collection_slot)
+	emit_ABC(builder, .EACH_NEXT, state_base, collection_slot, 0)
+}
+
+emit_each_end :: proc(builder: ^CodeBuilder, state_base, collection_slot: int) {
+	record_slots(builder, state_base, collection_slot)
+	emit_ABC(builder, .EACH_END, state_base, collection_slot, 0)
+}
+
 emit_load_function :: proc(builder: ^CodeBuilder, dst, child_code_index: int) {
 	assert(child_code_index >= 0 && child_code_index <= int(max(u16)), "child code index does not fit u16")
 	record_slots(builder, dst)
@@ -2144,6 +2222,14 @@ patch_jump_target :: proc(builder: ^CodeBuilder, jump_index, target_index: int) 
 	panic("patch_jump_target expected jump")
 }
 
+patch_loop_breaks :: proc(builder: ^CodeBuilder, loop: ActiveLoop, target_index: int) {
+	for i := loop.break_base; i < len(builder.break_jump_fixups); i += 1 {
+		patch_jump_target(builder, builder.break_jump_fixups[i], target_index)
+	}
+
+	resize(&builder.break_jump_fixups, loop.break_base)
+}
+
 
 // Compiler =======================================================================================
 
@@ -2191,6 +2277,8 @@ symbol_is_reserved_word :: proc(symbol: ^SymbolObject) -> bool {
 	       symbol.text == "cond" ||
 	       symbol.text == "case" ||
 	       symbol.text == "while" ||
+	       symbol.text == "each" ||
+	       symbol.text == "break" ||
 	       symbol.text == "and" ||
 	       symbol.text == "or" ||
 	       symbol.text == "??" ||
@@ -2493,29 +2581,86 @@ validate_binding_target :: proc(builder: ^CodeBuilder, target: Value, introduced
 	}
 }
 
-// Emits unpacking for a previously validated binding target.
-// Target forms evaluate no user expressions; map keys are compile-time values.
-compile_binding_target :: proc(builder: ^CodeBuilder, target: Value, source_slot: int, mutable: bool) {
+reserve_binding_target_slots :: proc(builder: ^CodeBuilder, target: Value, mutable: bool, bindings: []LocalBinding, binding_count: ^int) {
 	target_object, _ := target.(^Object)
 
 	switch target_object.kind {
 	case .SYMBOL:
-		binding := LocalBinding{
+		if binding_count^ >= len(bindings) {
+			compile_error("binding target introduces too many bindings.")
+			return
+		}
+
+		slot := claim_slot(builder)
+		if Compiler.failed { return }
+
+		bindings[binding_count^] = LocalBinding{
 			symbol  = cast(^SymbolObject)target_object,
-			slot    = source_slot,
+			slot    = slot,
 			mutable = mutable,
 		}
+		binding_count^ = binding_count^ + 1
+
+	case .VECTOR:
+		pattern := cast(^VectorObject)target_object
+		for item in pattern.items {
+			reserve_binding_target_slots(builder, item, mutable, bindings, binding_count)
+			if Compiler.failed { return }
+		}
+
+	case .MAP:
+		pattern := cast(^MapObject)target_object
+		for entry in pattern.entries {
+			reserve_binding_target_slots(builder, entry.value, mutable, bindings, binding_count)
+			if Compiler.failed { return }
+		}
+
+	case .STRING, .LIST, .NATIVE_FUNCTION, .FUNCTION:
+		compile_error("binding target must be a symbol, vector pattern, or map pattern.")
+		return
+	}
+}
+
+publish_bindings :: proc(builder: ^CodeBuilder, bindings: []LocalBinding, binding_count: int, record_file_bindings: bool) {
+	for i := 0; i < binding_count; i += 1 {
+		binding := bindings[i]
 
 		builder.local_bindings[builder.local_count] = binding
 		builder.local_count += 1
 
-		if builder.parent == nil {
+		if record_file_bindings {
 			append(&builder.file_bindings, binding)
 		}
+	}
+}
+
+// Initializes already-published target bindings from source_slot.
+// This must not create or publish bindings.
+// Target forms evaluate no user expressions; map keys are compile-time values.
+init_binding_target :: proc(builder: ^CodeBuilder, target: Value, source_slot: int, bindings: []LocalBinding, binding_count: int) {
+	target_object, _ := target.(^Object)
+
+	switch target_object.kind {
+	case .SYMBOL:
+		symbol := cast(^SymbolObject)target_object
+
+		for i := 0; i < binding_count; i += 1 {
+			binding := bindings[i]
+			if binding.symbol == symbol {
+				if binding.slot != source_slot {
+					emit_move(builder, binding.slot, source_slot)
+				}
+				return
+			}
+		}
+
+		assert(false, "init_binding_target could not find target binding")
+		return
 
 	case .VECTOR:
 		pattern := cast(^VectorObject)target_object
 		count := len(pattern.items)
+		slot_mark := builder.next_slot
 
 		// Use a fresh item range so nested vector patterns cannot clobber sibling item slots.
 		first_item_slot := claim_slot(builder)
@@ -2527,12 +2672,15 @@ compile_binding_target :: proc(builder: ^CodeBuilder, target: Value, source_slot
 		emit_unpack_vector(builder, source_slot, first_item_slot, count)
 
 		for i := 0; i < count; i += 1 {
-			compile_binding_target(builder, pattern.items[i], first_item_slot + i, mutable)
+			init_binding_target(builder, pattern.items[i], first_item_slot + i, bindings, binding_count)
 			if Compiler.failed { return }
 		}
 
+		builder.next_slot = slot_mark
+
 	case .MAP:
 		pattern := cast(^MapObject)target_object
+		slot_mark := builder.next_slot
 
 		// Keep source_slot live for every key lookup in this map pattern.
 		for entry in pattern.entries {
@@ -2551,9 +2699,11 @@ compile_binding_target :: proc(builder: ^CodeBuilder, target: Value, source_slot
 				emit_map_get(builder, child_source_slot, source_slot, child_source_slot)
 			}
 
-			compile_binding_target(builder, entry.value, child_source_slot, mutable)
+			init_binding_target(builder, entry.value, child_source_slot, bindings, binding_count)
 			if Compiler.failed { return }
 		}
+
+		builder.next_slot = slot_mark
 
 	case .STRING, .LIST, .NATIVE_FUNCTION, .FUNCTION:
 		compile_error("binding target must be a symbol, vector pattern, or map pattern.")
@@ -2561,7 +2711,7 @@ compile_binding_target :: proc(builder: ^CodeBuilder, target: Value, source_slot
 	}
 }
 
-compile_def_or_var :: proc(builder: ^CodeBuilder, form: Value, mutable: bool) {
+compile_def_or_var :: proc(builder: ^CodeBuilder, form: Value, mutable, record_file_bindings: bool) {
 	form_name := "var" if mutable else "def"
 
 	object, _ := form.(^Object)
@@ -2647,7 +2797,7 @@ compile_def_or_var :: proc(builder: ^CodeBuilder, form: Value, mutable: bool) {
 		builder.local_bindings[builder.local_count] = binding
 		builder.local_count += 1
 
-		if builder.parent == nil {
+		if record_file_bindings {
 			append(&builder.file_bindings, binding)
 		}
 
@@ -2709,6 +2859,13 @@ compile_def_or_var :: proc(builder: ^CodeBuilder, form: Value, mutable: bool) {
 		validate_binding_target(builder, target, introduced_symbols[:], &introduced_symbol_count)
 		if Compiler.failed { return }
 
+		target_bindings: [MAX_FRAME_SLOTS]LocalBinding
+		target_binding_count := 0
+
+		reserve_binding_target_slots(builder, target, mutable, target_bindings[:], &target_binding_count)
+		if Compiler.failed { return }
+
+		target_slot_after := builder.next_slot
 		source_slot := claim_slot(builder)
 		if Compiler.failed { return }
 
@@ -2716,17 +2873,21 @@ compile_def_or_var :: proc(builder: ^CodeBuilder, form: Value, mutable: bool) {
 		compile_expr(builder, expression, source_slot)
 		if Compiler.failed { return }
 
-		compile_binding_target(builder, target, source_slot, mutable)
+		publish_bindings(builder, target_bindings[:], target_binding_count, record_file_bindings)
+
+		init_binding_target(builder, target, source_slot, target_bindings[:], target_binding_count)
 		if Compiler.failed { return }
+
+		builder.next_slot = target_slot_after
 	}
 }
 
-compile_def :: proc(builder: ^CodeBuilder, form: Value) {
-	compile_def_or_var(builder, form, false)
+compile_def :: proc(builder: ^CodeBuilder, form: Value, record_file_bindings: bool) {
+	compile_def_or_var(builder, form, false, record_file_bindings)
 }
 
-compile_var :: proc(builder: ^CodeBuilder, form: Value) {
-	compile_def_or_var(builder, form, true)
+compile_var :: proc(builder: ^CodeBuilder, form: Value, record_file_bindings: bool) {
+	compile_def_or_var(builder, form, true, record_file_bindings)
 }
 
 compile_import :: proc(builder: ^CodeBuilder, list: ^ListObject) {
@@ -2884,12 +3045,12 @@ compile_body :: proc(builder: ^CodeBuilder, forms: []Value, dst: int) {
 				if head_is_object && head_object.kind == .SYMBOL {
 					head := cast(^SymbolObject)head_object
 					if head.text == "def" {
-						compile_def(builder, form)
+						compile_def(builder, form, false)
 						if Compiler.failed { return }
 						continue
 					}
 					if head.text == "var" {
-						compile_var(builder, form)
+						compile_var(builder, form, false)
 						if Compiler.failed { return }
 						continue
 					}
@@ -2954,12 +3115,12 @@ compile_root_forms :: proc(builder: ^CodeBuilder, forms: []Value, dst: int) {
 					seen_non_import = true
 
 					if head.text == "def" {
-						compile_def(builder, form)
+						compile_def(builder, form, true)
 						if Compiler.failed { return }
 						continue
 					}
 					if head.text == "var" {
-						compile_var(builder, form)
+						compile_var(builder, form, true)
 						if Compiler.failed { return }
 						continue
 					}
@@ -3041,6 +3202,24 @@ compile_false_jump :: proc(builder: ^CodeBuilder, condition: Value) -> int {
 	return jump_index
 }
 
+compile_break :: proc(builder: ^CodeBuilder, list: ^ListObject) {
+	if len(list.items) != 1 {
+		compile_error("`break` accepts no arguments.")
+		return
+	}
+
+	if len(builder.active_loops) == 0 {
+		compile_error("`break` is only valid inside `while` or `each`.")
+		return
+	}
+
+	loop := builder.active_loops[len(builder.active_loops) - 1]
+	emit_close_upvalues(builder, loop.close_slot)
+
+	append(&builder.break_jump_fixups, len(builder.bytecode))
+	emit_jump(builder, 0)
+}
+
 compile_effect :: proc(builder: ^CodeBuilder, form: Value) {
 	// Compile a form only for side effects, restoring temporary result slots afterward.
 	slot_mark := builder.next_slot
@@ -3092,6 +3271,16 @@ compile_effect :: proc(builder: ^CodeBuilder, form: Value) {
 					builder.next_slot = slot_mark
 					return
 				}
+				if head.text == "each" {
+					compile_each(builder, list, 0, false)
+					builder.next_slot = slot_mark
+					return
+				}
+				if head.text == "break" {
+					compile_break(builder, list)
+					builder.next_slot = slot_mark
+					return
+				}
 			}
 		}
 	}
@@ -3115,12 +3304,12 @@ compile_body_effect :: proc(builder: ^CodeBuilder, forms: []Value) {
 				if head_is_object && head_object.kind == .SYMBOL {
 					head := cast(^SymbolObject)head_object
 					if head.text == "def" {
-						compile_def(builder, form)
+						compile_def(builder, form, false)
 						if Compiler.failed { return }
 						continue
 					}
 					if head.text == "var" {
-						compile_var(builder, form)
+						compile_var(builder, form, false)
 						if Compiler.failed { return }
 						continue
 					}
@@ -3197,8 +3386,17 @@ compile_while_effect :: proc(builder: ^CodeBuilder, list: ^ListObject) {
 	builder.current_scope_local_start = builder.local_count
 	body_slot_mark := builder.next_slot
 
+	loop := ActiveLoop{
+		break_base = len(builder.break_jump_fixups),
+		close_slot = body_slot_mark,
+	}
+	append(&builder.active_loops, loop)
+
 	compile_body_effect(builder, list.items[2:])
 	if Compiler.failed { return }
+
+	loop = builder.active_loops[len(builder.active_loops) - 1]
+	resize(&builder.active_loops, len(builder.active_loops) - 1)
 
 	if builder.local_count > local_mark {
 		emit_close_upvalues(builder, body_slot_mark)
@@ -3210,7 +3408,9 @@ compile_while_effect :: proc(builder: ^CodeBuilder, list: ^ListObject) {
 
 	emit_jump(builder, loop_start)
 
-	patch_jump_target(builder, exit_jump, len(builder.bytecode))
+	exit_label := len(builder.bytecode)
+	patch_jump_target(builder, exit_jump, exit_label)
+	patch_loop_breaks(builder, loop, exit_label)
 }
 
 compile_do :: proc(builder: ^CodeBuilder, list: ^ListObject, dst: int) {
@@ -3478,8 +3678,17 @@ compile_while :: proc(builder: ^CodeBuilder, list: ^ListObject, dst: int) {
 	builder.current_scope_local_start = builder.local_count
 	body_slot_mark := builder.next_slot
 
+	loop := ActiveLoop{
+		break_base = len(builder.break_jump_fixups),
+		close_slot = body_slot_mark,
+	}
+	append(&builder.active_loops, loop)
+
 	compile_body_effect(builder, list.items[2:])
 	if Compiler.failed { return }
+
+	loop = builder.active_loops[len(builder.active_loops) - 1]
+	resize(&builder.active_loops, len(builder.active_loops) - 1)
 
 	if builder.local_count > local_mark {
 		emit_close_upvalues(builder, body_slot_mark)
@@ -3491,10 +3700,126 @@ compile_while :: proc(builder: ^CodeBuilder, list: ^ListObject, dst: int) {
 
 	emit_jump(builder, loop_start)
 
-	patch_jump_target(builder, exit_jump, len(builder.bytecode))
+	exit_label := len(builder.bytecode)
+	patch_jump_target(builder, exit_jump, exit_label)
+	patch_loop_breaks(builder, loop, exit_label)
 	if Compiler.failed { return }
 
 	emit_load_nil(builder, dst)
+}
+
+compile_each :: proc(builder: ^CodeBuilder, list: ^ListObject, dst: int, keep_result: bool) {
+	if len(list.items) < 3 {
+		compile_error("`each` expects target and collection expression.\nusage:\n  (each target collection\n    body-form...)")
+		return
+	}
+
+	target := list.items[1]
+	collection := list.items[2]
+
+	local_mark := builder.local_count
+	slot_mark := builder.next_slot
+	outer_scope_start := builder.current_scope_local_start
+
+	introduced_symbols: [MAX_FRAME_SLOTS]^SymbolObject
+	introduced_symbol_count := 0
+
+	builder.current_scope_local_start = local_mark
+	validate_binding_target(builder, target, introduced_symbols[:], &introduced_symbol_count)
+	builder.current_scope_local_start = outer_scope_start
+	if Compiler.failed { return }
+
+	target_object, target_is_object := target.(^Object)
+	map_target_ok := false
+	if target_is_object && target_object.kind == .VECTOR {
+		target_vector := cast(^VectorObject)target_object
+		map_target_ok = len(target_vector.items) == 2
+	}
+
+	collection_slot := claim_slot(builder)
+	if Compiler.failed { return }
+
+	compile_expr(builder, collection, collection_slot)
+	if Compiler.failed { return }
+
+	state_base := claim_slot(builder)
+	if Compiler.failed { return }
+
+	reserve_slots_until(builder, state_base + EACH_STATE_SLOT_COUNT)
+	if Compiler.failed { return }
+
+	target_bindings: [MAX_FRAME_SLOTS]LocalBinding
+	target_binding_count := 0
+
+	reserve_binding_target_slots(builder, target, false, target_bindings[:], &target_binding_count)
+	if Compiler.failed { return }
+
+	publish_bindings(builder, target_bindings[:], target_binding_count, false)
+	builder.current_scope_local_start = local_mark
+
+	emit_each_init(builder, state_base, collection_slot, map_target_ok)
+
+	loop_start := len(builder.bytecode)
+	emit_each_next(builder, state_base, collection_slot)
+
+	present_slot := state_base + EACH_PRESENT_SLOT
+	exit_jump := len(builder.bytecode)
+	emit_jump_if_falsey(builder, present_slot, 0)
+
+	loop := ActiveLoop{
+		break_base = len(builder.break_jump_fixups),
+		close_slot = state_base,
+	}
+	append(&builder.active_loops, loop)
+
+	if map_target_ok {
+		kind_slot := state_base + EACH_KIND_SLOT
+		vector_bind_jump := len(builder.bytecode)
+		emit_jump_if_falsey(builder, kind_slot, 0)
+
+		target_vector := cast(^VectorObject)target_object
+		init_binding_target(builder, target_vector.items[0], state_base + EACH_KEY_SLOT, target_bindings[:], target_binding_count)
+		if Compiler.failed { return }
+		init_binding_target(builder, target_vector.items[1], state_base + EACH_VALUE_SLOT, target_bindings[:], target_binding_count)
+		if Compiler.failed { return }
+
+		body_jump := len(builder.bytecode)
+		emit_jump(builder, 0)
+
+		patch_jump_target(builder, vector_bind_jump, len(builder.bytecode))
+		init_binding_target(builder, target, state_base + EACH_ITEM_SLOT, target_bindings[:], target_binding_count)
+		if Compiler.failed { return }
+
+		patch_jump_target(builder, body_jump, len(builder.bytecode))
+	} else {
+		init_binding_target(builder, target, state_base + EACH_ITEM_SLOT, target_bindings[:], target_binding_count)
+		if Compiler.failed { return }
+	}
+
+	compile_body_effect(builder, list.items[3:])
+	if Compiler.failed { return }
+
+	loop = builder.active_loops[len(builder.active_loops) - 1]
+	resize(&builder.active_loops, len(builder.active_loops) - 1)
+
+	if builder.local_count > local_mark {
+		emit_close_upvalues(builder, state_base)
+	}
+
+	builder.local_count = local_mark
+	builder.next_slot = slot_mark
+	builder.current_scope_local_start = outer_scope_start
+
+	emit_jump(builder, loop_start)
+
+	each_end := len(builder.bytecode)
+	patch_jump_target(builder, exit_jump, each_end)
+	patch_loop_breaks(builder, loop, each_end)
+	emit_each_end(builder, state_base, collection_slot)
+
+	if keep_result {
+		emit_load_nil(builder, dst)
+	}
 }
 
 compile_set :: proc(builder: ^CodeBuilder, list: ^ListObject, dst: int, keep_result: bool) {
@@ -4053,6 +4378,14 @@ compile_list_expr :: proc(builder: ^CodeBuilder, list: ^ListObject, dst: int) {
 	}
 	if head.text == "while" {
 		compile_while(builder, list, dst)
+		return
+	}
+	if head.text == "each" {
+		compile_each(builder, list, dst, true)
+		return
+	}
+	if head.text == "break" {
+		compile_break(builder, list)
 		return
 	}
 	if head.text == "and" {
@@ -4932,6 +5265,110 @@ run_code :: proc(code: ^Code) -> Value {
 
 			map_set(cast(^MapObject)map_object, key_value, new_value)
 			if vm.error_string != "" { return Value{} }
+
+		case .EACH_INIT:
+			inst := InstABC(word)
+			state_base := slot_base + int(inst.a)
+			collection_value := vm.slots[slot_base + int(inst.b)]
+			map_target_ok := inst.c != 0
+
+			collection_object, collection_is_object := collection_value.(^Object)
+			if !collection_is_object {
+				runtime_error("`each` expected vector or map.")
+				return Value{}
+			}
+
+			switch collection_object.kind {
+			case .VECTOR:
+				vector := cast(^VectorObject)collection_object
+				vm.slots[state_base + EACH_KIND_SLOT] = Value(bool(false))
+				vm.slots[state_base + EACH_CURSOR_SLOT] = Value(i64(0))
+				vm.slots[state_base + EACH_LIMIT_SLOT] = Value(i64(len(vector.items)))
+
+			case .MAP:
+				if !map_target_ok {
+					runtime_error("map `each` requires [key value] target.")
+					return Value{}
+				}
+
+				map_object := cast(^MapObject)collection_object
+				map_object.active_iteration_count += 1
+
+				vm.slots[state_base + EACH_KIND_SLOT] = Value(bool(true))
+				vm.slots[state_base + EACH_CURSOR_SLOT] = Value(i64(0))
+				vm.slots[state_base + EACH_LIMIT_SLOT] = Value(i64(len(map_object.entries)))
+
+			case .STRING, .SYMBOL, .LIST, .NATIVE_FUNCTION, .FUNCTION:
+				runtime_error("`each` expected vector or map.")
+				return Value{}
+			}
+
+		case .EACH_NEXT:
+			inst := InstABC(word)
+			state_base := slot_base + int(inst.a)
+			collection_value := vm.slots[slot_base + int(inst.b)]
+			is_map, _ := vm.slots[state_base + EACH_KIND_SLOT].(bool)
+
+			if !is_map {
+				vector_object, _ := collection_value.(^Object)
+				vector := cast(^VectorObject)vector_object
+
+				cursor, _ := vm.slots[state_base + EACH_CURSOR_SLOT].(i64)
+				limit, _ := vm.slots[state_base + EACH_LIMIT_SLOT].(i64)
+
+				if cursor >= limit {
+					vm.slots[state_base + EACH_PRESENT_SLOT] = Value(bool(false))
+					break
+				}
+
+				if cursor >= i64(len(vector.items)) {
+					runtime_error("vector index out of range.")
+					return Value{}
+				}
+
+				vm.slots[state_base + EACH_ITEM_SLOT] = vector.items[int(cursor)]
+				vm.slots[state_base + EACH_CURSOR_SLOT] = Value(cursor + 1)
+				vm.slots[state_base + EACH_PRESENT_SLOT] = Value(bool(true))
+				break
+			}
+
+			map_object, _ := collection_value.(^Object)
+			map_value := cast(^MapObject)map_object
+
+			cursor, _ := vm.slots[state_base + EACH_CURSOR_SLOT].(i64)
+			limit, _ := vm.slots[state_base + EACH_LIMIT_SLOT].(i64)
+
+			found_entry := false
+			for bucket_index := int(cursor); bucket_index < int(limit); bucket_index += 1 {
+				entry := map_value.entries[bucket_index]
+				if entry.key == nil {
+					continue
+				}
+
+				vm.slots[state_base + EACH_KEY_SLOT] = entry.key
+				vm.slots[state_base + EACH_VALUE_SLOT] = entry.value
+				vm.slots[state_base + EACH_CURSOR_SLOT] = Value(i64(bucket_index + 1))
+				vm.slots[state_base + EACH_PRESENT_SLOT] = Value(bool(true))
+				found_entry = true
+				break
+			}
+
+			if !found_entry {
+				vm.slots[state_base + EACH_CURSOR_SLOT] = Value(limit)
+				vm.slots[state_base + EACH_PRESENT_SLOT] = Value(bool(false))
+			}
+
+		case .EACH_END:
+			inst := InstABC(word)
+			state_base := slot_base + int(inst.a)
+			is_map, _ := vm.slots[state_base + EACH_KIND_SLOT].(bool)
+
+			if is_map {
+				collection_object, _ := vm.slots[slot_base + int(inst.b)].(^Object)
+				map_object := cast(^MapObject)collection_object
+				assert(map_object.active_iteration_count > 0, "active map iteration count underflow")
+				map_object.active_iteration_count -= 1
+			}
 
 		case .UNPACK_VECTOR:
 			inst := InstABC(word)
