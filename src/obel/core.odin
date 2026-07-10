@@ -1,4 +1,4 @@
-package eld
+package obel
 
 import "base:intrinsics"
 import "core:fmt"
@@ -624,7 +624,7 @@ native_mod :: proc(vm: ^VM, args: []Value) -> Value {
 	return op_mod(args[0], args[1])
 }
 
-// (= left right) bool; true if values are equal by Eld equality.
+// (= left right) bool; true if values are equal by Obel equality.
 native_equal :: proc(vm: ^VM, args: []Value) -> Value {
 	if len(args) != 2 {
 		runtime_error("`=` expects two arguments.\nusage: (= value value)")
@@ -633,7 +633,7 @@ native_equal :: proc(vm: ^VM, args: []Value) -> Value {
 	return op_equal(args[0], args[1])
 }
 
-// (!= left right) bool; true if values are not equal by Eld equality.
+// (!= left right) bool; true if values are not equal by Obel equality.
 native_not_equal :: proc(vm: ^VM, args: []Value) -> Value {
 	if len(args) != 2 {
 		runtime_error("`!=` expects two arguments.\nusage: (!= value value)")
@@ -717,7 +717,7 @@ native_number_predicate :: proc(vm: ^VM, args: []Value) -> Value {
 	return Value(bool(is_int || is_float))
 }
 
-// (number value) number|nil; Parse or pass through an Eld number.
+// (number value) number|nil; Parse or pass through an Obel number.
 native_number :: proc(vm: ^VM, args: []Value) -> Value {
 	if len(args) != 1 {
 		runtime_error("`number` expects one argument.\nusage: (number value)")
@@ -795,7 +795,7 @@ native_map_predicate :: proc(vm: ^VM, args: []Value) -> Value {
 	return Value(bool(is_object && object.kind == .MAP))
 }
 
-// (fn? value) bool; true if value is a native or Eld function.
+// (fn? value) bool; true if value is a native or Obel function.
 native_function_predicate :: proc(vm: ^VM, args: []Value) -> Value {
 	if len(args) != 1 {
 		runtime_error("`fn?` expects one argument.\nusage: (fn? value)")
@@ -929,7 +929,7 @@ native_type :: proc(vm: ^VM, args: []Value) -> Value {
 			case .NATIVE_FUNCTION, .FUNCTION:
 				type_name = "function"
 			case .SYMBOL:
-				assert(false, "symbol is not an Eld runtime value")
+				assert(false, "symbol is not an Obel runtime value")
 				return Value{}
 			}
 		}

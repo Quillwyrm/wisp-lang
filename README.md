@@ -1,12 +1,12 @@
-# (eld)
+# (Obel)
 A nimble, dynamic, embeddable Lisp, written in Odin.
 
 ```clojure
-(def lang "Eld")
+(def lang "Obel")
 
 (def (greet name)
   (print (str "Hi " name "!")))
 
 (greet lang)
-; Hi Eld!
+; Hi Obel!
 ```

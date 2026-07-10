@@ -3,7 +3,7 @@
 ; Comment lines start with ;, //, --, or # after trimming.
 ;
 ; Usage:
-;   eld examples/gloc.eld [path]
+;   obel examples/gloc.obel [path]
 
 (import "fs")
 (import "os")

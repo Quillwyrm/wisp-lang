@@ -1,4 +1,4 @@
-package eld
+package obel
 
 import "base:intrinsics"
 import "core:fmt"
@@ -42,7 +42,7 @@ SymbolObject :: struct {
 ListObject :: struct {
 	header: Object,
 
-	// Reader lists hold source forms. Eld does not expose a runtime list literal.
+	// Reader lists hold source forms. Obel does not expose a runtime list literal.
 	items: [dynamic]Value,
 }
 
@@ -69,7 +69,7 @@ MapObject :: struct {
 	active_iteration_count: int,
 }
 
-// The zero value of this union represents Eld nil.
+// The zero value of this union represents Obel nil.
 Value :: union {
 	bool,
 	i64,
@@ -454,7 +454,7 @@ string_hash :: proc(object: ^StringObject) -> u64 {
 	return object.hash
 }
 
-// Hashes one legal runtime map key. Numeric hashing mirrors Eld's current
+// Hashes one legal runtime map key. Numeric hashing mirrors Obel's current
 // mixed comparison rule by first converting ints to f64.
 map_key_hash :: proc(key: Value) -> (u64, bool) {
 	if key == nil {
@@ -492,7 +492,7 @@ map_key_hash :: proc(key: Value) -> (u64, bool) {
 			return string_hash(cast(^StringObject)value), true
 
 		case .SYMBOL:
-			assert(false, "symbol is not an Eld runtime value")
+			assert(false, "symbol is not an Obel runtime value")
 			return 0, false
 
 		case .LIST, .VECTOR, .MAP, .NATIVE_FUNCTION, .FUNCTION:
@@ -870,7 +870,7 @@ number_from_text :: proc(text: string, report_reader_errors: bool) -> (Value, bo
 		return Value{}, false
 	}
 
-	// Odin converts the value only after Eld accepts its spelling.
+	// Odin converts the value only after Obel accepts its spelling.
 	if is_float {
 		float_value, float_ok := strconv.parse_f64(text)
 		if !float_ok {
@@ -1496,7 +1496,7 @@ print_value :: proc(value: Value) {
 resolve_import_path :: proc(importer_source_name, import_path: string) -> (string, bool) {
 	path := import_path
 	if filepath.ext(path) == "" {
-		path = fmt.tprintf("%s.eld", import_path)
+		path = fmt.tprintf("%s.obel", import_path)
 	}
 
 	joined_path := ""

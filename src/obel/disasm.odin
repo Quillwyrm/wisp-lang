@@ -1,4 +1,4 @@
-package eld
+package obel
 
 import "core:fmt"
 import "core:os"
