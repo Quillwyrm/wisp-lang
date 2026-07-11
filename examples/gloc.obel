@@ -85,17 +85,15 @@
   (set total-lines (+ total-lines line-count)))
 
 (def (count-file file)
-  (cond
-    (ignored-file? file)
-      nil
+  (if (ignored-file? file)
+    nil
+    (do
+      (def [text err] (fs/read-file file))
 
-    :else
-      (do
-        (def [text err] (fs/read-file file))
+      (if err
+        nil
 
-        (if err
-          nil
-          (record-file file (count-text text))))))
+        (record-file file (count-text text))))))
 
 (def (pad-left value width)
   (var text (str value))
@@ -117,23 +115,18 @@
 (def (walk dir)
   (def [names err] (fs/list-dir dir))
 
-  (cond
-    err
-      (print "skip:" dir err)
+  (if err
+    (print "skip:" dir err)
+    (each name names
+      (def full (path/join dir name))
 
-    :else
-      (do
-        (each name names
-          (def
-            full (path/join dir name))
+      (cond
+        (fs/dir? full)
+          (if (not (ignored-dir? name))
+            (walk full))
 
-          (cond
-            (fs/dir? full)
-              (if (not (ignored-dir? name))
-                (walk full))
-
-            (fs/file? full)
-              (count-file full))))))
+        (fs/file? full)
+          (count-file full)))))
 
 (def (print-stats)
   (print "gloc:" root)
@@ -148,14 +141,9 @@
       files-text (str files)
       lines-text (str lines))
 
-    (if (> (len files-text) files-width)
-      (set files-width (len files-text)))
-
-    (if (> (len ext) ext-width)
-      (set ext-width (len ext)))
-
-    (if (> (len lines-text) lines-width)
-      (set lines-width (len lines-text))))
+    (set files-width (max files-width (len files-text)))
+    (set ext-width (max ext-width (len ext)))
+    (set lines-width (max lines-width (len lines-text))))
 
   (write
     (pad-left "files" files-width) "  "
@@ -179,9 +167,8 @@
   (fs/file? root)
     (count-file root)
 
-  :else
-    (do
-      (print "path not found:" root)
-      (os/exit 1)))
+  :else (do
+    (print "path not found:" root)
+    (os/exit 1)))
 
 (print-stats)

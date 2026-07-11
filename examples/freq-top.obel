@@ -1,0 +1,77 @@
+; freq-top - print the most frequent words in a file.
+;
+; Usage:
+;   obel examples/freq-top.obel file [count]
+
+(import "fs")
+(import "os")
+(import "str")
+
+(def args (os/args))
+
+(if (or (< (len args) 1) (> (len args) 2))
+  (do
+    (print "usage: obel examples/freq-top.obel file [count]")
+    (os/exit 1)))
+
+(def limit
+  (if (= (len args) 2)
+    (number (idx args 1))
+    20))
+
+(if (or (not (int? limit)) (< limit 0))
+  (do
+    (print "count must be a non-negative int")
+    (os/exit 1)))
+
+(def [text err] (fs/read-file (idx args 0)))
+
+(if err
+  (do
+    (print err)
+    (os/exit 1)))
+
+(def (non-empty? word)
+  (not (empty? word)))
+
+(def (line-words line)
+  (filter non-empty? (str/split (str/lower line) " ")))
+
+(def (append-line-words out line)
+  (each word (line-words line)
+    (push out word))
+  out)
+
+(def (count-word m word)
+  (set (key m word) (+ (?? (key m word) 0) 1))
+  m)
+
+; Pick the pair with the larger count. The first call receives nil as the seed.
+(def (better-pair a b)
+  (if (nil? a)
+    b
+    (if (> (idx b 1) (idx a 1))
+      b
+      a)))
+
+(def (best-pair pairs)
+  (reduce better-pair nil pairs))
+
+; Tokenize lines, then reduce words into a count map.
+(def words (reduce append-line-words [] (str/split text "\n")))
+(def counts (reduce count-word {} words))
+
+; No sort builtin yet, so repeatedly print the best remaining pair.
+(var
+  remaining (pairs counts)
+  printed 0)
+
+(while (and (< printed limit) (not (empty? remaining)))
+  (def best (best-pair remaining))
+  (def (not-best? pair)
+    (!= (idx pair 0) (idx best 0)))
+
+  (print (str (+ printed 1) ".") (idx best 1) (idx best 0))
+
+  (set remaining (filter not-best? remaining))
+  (set printed (+ printed 1)))

@@ -507,6 +507,12 @@ compare_numbers :: proc(lhs, rhs: Value, compare: NumericCompare) -> bool {
 	return false
 }
 
+value_is_number :: proc(value: Value) -> bool {
+	_, is_int := value.(i64)
+	_, is_float := value.(f64)
+	return is_int || is_float
+}
+
 value_is_falsey :: proc(value: Value) -> bool {
 	if value == nil { return true }
 
@@ -623,6 +629,166 @@ native_mod :: proc(vm: ^VM, args: []Value) -> Value {
 	return op_mod(args[0], args[1])
 }
 
+// (abs number) number; Absolute value.
+native_abs :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) != 1 {
+		runtime_error("`abs` expects one argument.\nusage: (abs number)")
+		return Value{}
+	}
+
+	int_value, is_int := args[0].(i64)
+	if is_int {
+		if int_value == min(i64) {
+			runtime_error("`abs` cannot represent absolute value of minimum int.")
+			return Value{}
+		}
+
+		if int_value < 0 { return Value(-int_value) }
+		return Value(int_value)
+	}
+
+	float_value, is_float := args[0].(f64)
+	if is_float {
+		return Value(math.abs(float_value))
+	}
+
+	runtime_error("`abs` expected int or float as argument.")
+	return Value{}
+}
+
+// (min number number...) number; Smallest numeric argument.
+native_min :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) < 2 {
+		runtime_error("`min` expects two or more arguments.\nusage: (min number number...)")
+		return Value{}
+	}
+
+	if !value_is_number(args[0]) {
+		runtime_error("`min` expected int or float arguments.")
+		return Value{}
+	}
+
+	_, first_is_float := args[0].(f64)
+	has_float := first_is_float
+	result := args[0]
+
+	for i := 1; i < len(args); i += 1 {
+		if !value_is_number(args[i]) {
+			runtime_error("`min` expected int or float arguments.")
+			return Value{}
+		}
+
+		_, is_float := args[i].(f64)
+		if is_float { has_float = true }
+		if compare_numbers(args[i], result, .LESS) {
+			result = args[i]
+		}
+	}
+
+	if has_float {
+		#partial switch value in result {
+		case i64:
+			return Value(f64(value))
+		case f64:
+			return result
+		}
+	}
+
+	return result
+}
+
+// (max number number...) number; Largest numeric argument.
+native_max :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) < 2 {
+		runtime_error("`max` expects two or more arguments.\nusage: (max number number...)")
+		return Value{}
+	}
+
+	if !value_is_number(args[0]) {
+		runtime_error("`max` expected int or float arguments.")
+		return Value{}
+	}
+
+	_, first_is_float := args[0].(f64)
+	has_float := first_is_float
+	result := args[0]
+
+	for i := 1; i < len(args); i += 1 {
+		if !value_is_number(args[i]) {
+			runtime_error("`max` expected int or float arguments.")
+			return Value{}
+		}
+
+		_, is_float := args[i].(f64)
+		if is_float { has_float = true }
+		if compare_numbers(args[i], result, .GREATER) {
+			result = args[i]
+		}
+	}
+
+	if has_float {
+		#partial switch value in result {
+		case i64:
+			return Value(f64(value))
+		case f64:
+			return result
+		}
+	}
+
+	return result
+}
+
+// (clamp number number number) number; Constrain a number between inclusive bounds.
+native_clamp :: proc(vm: ^VM, args: []Value) -> Value {
+	if len(args) != 3 {
+		runtime_error("`clamp` expects three arguments.\nusage: (clamp number number number)")
+		return Value{}
+	}
+
+	if !value_is_number(args[0]) {
+		runtime_error("`clamp` expected int or float arguments.")
+		return Value{}
+	}
+
+	if !value_is_number(args[1]) {
+		runtime_error("`clamp` expected int or float arguments.")
+		return Value{}
+	}
+
+	if !value_is_number(args[2]) {
+		runtime_error("`clamp` expected int or float arguments.")
+		return Value{}
+	}
+
+	if !compare_numbers(args[1], args[2], .LESS_EQUAL) {
+		runtime_error("`clamp` lower bound cannot be greater than upper bound.")
+		return Value{}
+	}
+
+	_, x_is_float := args[0].(f64)
+	_, lo_is_float := args[1].(f64)
+	_, hi_is_float := args[2].(f64)
+	has_float := x_is_float || lo_is_float || hi_is_float
+	result := args[0]
+
+	if compare_numbers(args[0], args[1], .LESS) {
+		result = args[1]
+	} else if compare_numbers(args[0], args[2], .GREATER) {
+		result = args[2]
+	}
+
+	if has_float {
+		#partial switch value in result {
+		case i64:
+			return Value(f64(value))
+		case f64:
+			return result
+		}
+	}
+
+	return result
+}
+
 // (= left right) bool; true if values are equal by Obel equality.
 native_equal :: proc(vm: ^VM, args: []Value) -> Value {
 	if len(args) != 2 {
@@ -711,9 +877,7 @@ native_number_predicate :: proc(vm: ^VM, args: []Value) -> Value {
 		runtime_error("`number?` expects one argument.\nusage: (number? value)")
 		return Value{}
 	}
-	_, is_int := args[0].(i64)
-	_, is_float := args[0].(f64)
-	return Value(bool(is_int || is_float))
+	return Value(bool(value_is_number(args[0])))
 }
 
 // (number value) number|nil; Parse or pass through an Obel number.
@@ -2431,6 +2595,10 @@ install_builtins :: proc(vm: ^VM) {
 	bind_native_builtin(vm, "*", native_mul)
 	bind_native_builtin(vm, "/", native_div)
 	bind_native_builtin(vm, "%", native_mod)
+	bind_native_builtin(vm, "abs", native_abs)
+	bind_native_builtin(vm, "min", native_min)
+	bind_native_builtin(vm, "max", native_max)
+	bind_native_builtin(vm, "clamp", native_clamp)
 	bind_native_builtin(vm, "=", native_equal)
 	bind_native_builtin(vm, "!=", native_not_equal)
 	bind_native_builtin(vm, "<", native_less)

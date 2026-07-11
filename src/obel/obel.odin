@@ -2681,7 +2681,7 @@ validate_binding_target :: proc(builder: ^CodeBuilder, target: Value, introduced
 }
 
 reserve_binding_target_slots :: proc(builder: ^CodeBuilder, target: Value, mutable: bool, bindings: []LocalBinding, binding_count: ^int) {
-	target_object, _ := target.(^Object)
+	target_object := target.(^Object)
 
 	switch target_object.kind {
 	case .SYMBOL:
@@ -2737,7 +2737,7 @@ publish_bindings :: proc(builder: ^CodeBuilder, bindings: []LocalBinding, bindin
 // This must not create or publish bindings.
 // Target forms evaluate no user expressions; map keys are compile-time values.
 init_binding_target :: proc(builder: ^CodeBuilder, target: Value, source_slot: int, bindings: []LocalBinding, binding_count: int) {
-	target_object, _ := target.(^Object)
+	target_object := target.(^Object)
 
 	switch target_object.kind {
 	case .SYMBOL:
@@ -2813,7 +2813,7 @@ init_binding_target :: proc(builder: ^CodeBuilder, target: Value, source_slot: i
 compile_def_or_var :: proc(builder: ^CodeBuilder, form: Value, mutable, record_file_bindings: bool) {
 	form_name := "var" if mutable else "def"
 
-	object, _ := form.(^Object)
+	object := form.(^Object)
 	list := cast(^ListObject)object
 	if len(list.items) < 2 {
 		compile_error(fmt.tprintf("`%s` expects a binding target.", form_name))
@@ -5418,14 +5418,14 @@ run_vm :: proc(vm: ^VM, stop_frame_count: int) -> Value {
 			inst := InstABC(word)
 			state_base := slot_base + int(inst.a)
 			collection_value := vm.slots[slot_base + int(inst.b)]
-			is_map, _ := vm.slots[state_base + EACH_KIND_SLOT].(bool)
+			is_map := vm.slots[state_base + EACH_KIND_SLOT].(bool)
 
 			if !is_map {
-				vector_object, _ := collection_value.(^Object)
+				vector_object := collection_value.(^Object)
 				vector := cast(^VectorObject)vector_object
 
-				cursor, _ := vm.slots[state_base + EACH_CURSOR_SLOT].(i64)
-				limit, _ := vm.slots[state_base + EACH_LIMIT_SLOT].(i64)
+				cursor := vm.slots[state_base + EACH_CURSOR_SLOT].(i64)
+				limit := vm.slots[state_base + EACH_LIMIT_SLOT].(i64)
 
 				if cursor >= limit {
 					vm.slots[state_base + EACH_PRESENT_SLOT] = Value(bool(false))
@@ -5443,11 +5443,11 @@ run_vm :: proc(vm: ^VM, stop_frame_count: int) -> Value {
 				break
 			}
 
-			map_object, _ := collection_value.(^Object)
+			map_object := collection_value.(^Object)
 			map_value := cast(^MapObject)map_object
 
-			cursor, _ := vm.slots[state_base + EACH_CURSOR_SLOT].(i64)
-			limit, _ := vm.slots[state_base + EACH_LIMIT_SLOT].(i64)
+			cursor := vm.slots[state_base + EACH_CURSOR_SLOT].(i64)
+			limit := vm.slots[state_base + EACH_LIMIT_SLOT].(i64)
 
 			found_entry := false
 			for bucket_index := int(cursor); bucket_index < int(limit); bucket_index += 1 {
@@ -5472,10 +5472,10 @@ run_vm :: proc(vm: ^VM, stop_frame_count: int) -> Value {
 		case .EACH_END:
 			inst := InstABC(word)
 			state_base := slot_base + int(inst.a)
-			is_map, _ := vm.slots[state_base + EACH_KIND_SLOT].(bool)
+			is_map := vm.slots[state_base + EACH_KIND_SLOT].(bool)
 
 			if is_map {
-				collection_object, _ := vm.slots[slot_base + int(inst.b)].(^Object)
+				collection_object := vm.slots[slot_base + int(inst.b)].(^Object)
 				map_object := cast(^MapObject)collection_object
 				assert(map_object.active_iteration_count > 0, "active map iteration count underflow")
 				map_object.active_iteration_count -= 1
