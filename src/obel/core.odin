@@ -8,6 +8,7 @@ import rand "core:math/rand"
 import "core:os"
 import filepath "core:path/filepath"
 import "core:strings"
+import "core:time"
 
 // Native module binding ==========================================================================
 
@@ -2817,6 +2818,87 @@ native_os_args :: proc(vm: ^VM, args: []Value) -> Value {
 	return Value(cast(^Object)new_vector_object(items))
 }
 
+// (time) float; Unix time in seconds.
+native_os_time :: proc(vm: ^VM, args: []Value) -> Value {
+	if !check_arg_count(args, 0, "`os/time` expects no arguments.\nusage: (os/time)") { return Value{} }
+
+	nanoseconds := time.time_to_unix_nano(time.now())
+	return Value(f64(nanoseconds) / 1e9)
+}
+
+// (tick) float; Monotonic clock reading in seconds.
+native_os_tick :: proc(vm: ^VM, args: []Value) -> Value {
+	if !check_arg_count(args, 0, "`os/tick` expects no arguments.\nusage: (os/tick)") { return Value{} }
+
+	tick := time.tick_now()
+	return Value(f64(tick._nsec) / 1e9)
+}
+
+// (sleep seconds) nil; Block for approximately seconds.
+native_os_sleep :: proc(vm: ^VM, args: []Value) -> Value {
+	if !check_arg_count(args, 1, "`os/sleep` expects one argument.\nusage: (os/sleep seconds)") { return Value{} }
+
+	seconds, seconds_ok := check_number_arg(args, 0, "os/sleep", "first")
+	if !seconds_ok { return Value{} }
+
+	if math.is_nan(seconds) || math.is_inf(seconds) || seconds < 0 {
+		runtime_error("`os/sleep` expected finite non-negative seconds.")
+		return Value{}
+	}
+
+	nanoseconds := seconds * 1e9
+	// time.Duration is i64 nanoseconds; 2^63 is the first invalid positive value.
+	if nanoseconds >= 9223372036854775808.0 {
+		runtime_error("`os/sleep` duration is too large.")
+		return Value{}
+	}
+
+	time.sleep(time.Duration(i64(nanoseconds)))
+	return Value{}
+}
+
+// (run args) [exit-code nil]|[nil err]; Run a process and inherit standard streams.
+native_os_run :: proc(vm: ^VM, args: []Value) -> Value {
+	if !check_arg_count(args, 1, "`os/run` expects one argument.\nusage: (os/run args)") { return Value{} }
+
+	command_vector, command_ok := check_vector_arg(args, 0, "os/run", "first")
+	if !command_ok { return Value{} }
+	if len(command_vector.items) == 0 {
+		runtime_error("`os/run` args vector must not be empty.")
+		return Value{}
+	}
+
+	command := make([]string, len(command_vector.items))
+	defer delete(command)
+
+	for item, index in command_vector.items {
+		item_object, item_is_object := item.(^Object)
+		if !item_is_object || item_object.kind != .STRING {
+			runtime_error(fmt.tprintf("`os/run` expected string item at args index %d.", index))
+			return Value{}
+		}
+
+		command[index] = (cast(^StringObject)item_object).text
+	}
+
+	process, start_error := os.process_start(os.Process_Desc{
+		command = command,
+		stdin   = os.stdin,
+		stdout  = os.stdout,
+		stderr  = os.stderr,
+	})
+	if start_error != nil {
+		return value_err_vector(Value{}, Value(cast(^Object)new_string_object(fmt.tprintf("`os/run` failed to start `%s`: %v", command[0], start_error))))
+	}
+
+	state, wait_error := os.process_wait(process)
+	if wait_error != nil {
+		return value_err_vector(Value{}, Value(cast(^Object)new_string_object(fmt.tprintf("`os/run` failed while waiting for `%s`: %v", command[0], wait_error))))
+	}
+
+	return value_err_vector(Value(i64(state.exit_code)), Value{})
+}
+
 // (env name) string|nil; Environment variable value, or nil if unset.
 native_os_env :: proc(vm: ^VM, args: []Value) -> Value {
 	if !check_arg_count(args, 1, "`os/env` expects one argument.\nusage: (os/env name)") { return Value{} }
@@ -3307,6 +3389,10 @@ install_core_modules :: proc(vm: ^VM) {
 
 	bind_module_native_function(vm, &os_exports, "argv", native_os_argv)
 	bind_module_native_function(vm, &os_exports, "args", native_os_args)
+	bind_module_native_function(vm, &os_exports, "time", native_os_time)
+	bind_module_native_function(vm, &os_exports, "tick", native_os_tick)
+	bind_module_native_function(vm, &os_exports, "sleep", native_os_sleep)
+	bind_module_native_function(vm, &os_exports, "run", native_os_run)
 	bind_module_native_function(vm, &os_exports, "env", native_os_env)
 	bind_module_native_function(vm, &os_exports, "set-env", native_os_set_env)
 	bind_module_native_function(vm, &os_exports, "exit", native_os_exit)
